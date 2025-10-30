@@ -44,11 +44,12 @@ contract SettlementHub is ISettlementHub, ReentrancyGuard {
      *   1. Calculate contextKey (idempotency identifier)
      *   2. Check idempotency (prevent duplicate settlement)
      *   3. Mark as settled (CEI pattern)
-     *   4. Call token.transferWithAuthorization (funds enter Hub)
-     *   5. Verify balance (ensure transfer success)
-     *   6. Approve and call Hook (execute business logic)
-     *   7. Verify balance is 0 (ensure no fund holding)
-     *   8. Emit events
+     *   4. Record balance before transfer
+     *   5. Call token.transferWithAuthorization (funds enter Hub)
+     *   6. Verify balance increment (ensure transfer success)
+     *   7. Approve and call Hook (execute business logic)
+     *   8. Verify balance returns to pre-transfer level (ensure no fund holding)
+     *   9. Emit events
      */
     function settleAndExecute(
         address token,
@@ -72,7 +73,10 @@ contract SettlementHub is ISettlementHub, ReentrancyGuard {
         // 3. Mark as settled (CEI pattern: modify state first)
         settled[contextKey] = true;
         
-        // 4. Call token.transferWithAuthorization
+        // 4. Record balance before transfer (to handle direct transfers to Hub)
+        uint256 balanceBefore = IERC20(token).balanceOf(address(this));
+        
+        // 5. Call token.transferWithAuthorization
         // Note: signature verification and nonce check are done by token contract
         IERC3009(token).transferWithAuthorization(
             from,
@@ -84,13 +88,14 @@ contract SettlementHub is ISettlementHub, ReentrancyGuard {
             signature
         );
         
-        // 5. Verify balance (ensure transfer success)
-        uint256 balanceBefore = IERC20(token).balanceOf(address(this));
-        if (balanceBefore < value) {
-            revert TransferFailed(token, value, balanceBefore);
+        // 6. Verify balance increment (ensure transfer success)
+        uint256 balanceAfter = IERC20(token).balanceOf(address(this));
+        uint256 received = balanceAfter - balanceBefore;
+        if (received < value) {
+            revert TransferFailed(token, value, received);
         }
         
-        // 6. Call Hook (if any)
+        // 7. Call Hook (if any)
         if (hook != address(0)) {
             // Approve Hook to use funds
             IERC20(token).forceApprove(hook, value);
@@ -111,13 +116,14 @@ contract SettlementHub is ISettlementHub, ReentrancyGuard {
             }
         }
         
-        // 7. Ensure Hub holds no funds (all funds should be distributed or returned by Hook)
-        uint256 balanceAfter = IERC20(token).balanceOf(address(this));
-        if (balanceAfter != 0) {
-            revert HubShouldNotHoldFunds(token, balanceAfter);
+        // 8. Ensure Hub holds no funds (balance should return to pre-transfer level)
+        // This allows the Hub to work even if someone directly transfers tokens to it
+        uint256 balanceFinal = IERC20(token).balanceOf(address(this));
+        if (balanceFinal != balanceBefore) {
+            revert HubShouldNotHoldFunds(token, balanceFinal - balanceBefore);
         }
         
-        // 8. Emit events
+        // 9. Emit events
         emit Settled(contextKey, from, token, value, hook);
     }
     
