@@ -77,10 +77,9 @@ contract SettlementHub is ISettlementHub, ReentrancyGuard {
         bytes32 commitment = keccak256(abi.encodePacked(
             "X402/settle/v1",
             block.chainid,
-            address(this),
+            address(this),  // Hub address (cross-hub replay protection)
             token,
             from,
-            address(this),  // to (always Hub)
             value,
             validAfter,
             validBefore,
@@ -161,11 +160,12 @@ contract SettlementHub is ISettlementHub, ReentrancyGuard {
             }
         }
         
-        // 11. Ensure Hub holds no funds (balance should return to pre-transfer level)
+        // 11. Ensure Hub only holds accumulated fees (balance should be pre-transfer + fees)
         // This allows the Hub to work even if someone directly transfers tokens to it
         uint256 balanceFinal = IERC20(token).balanceOf(address(this));
-        if (balanceFinal != balanceBefore) {
-            revert HubShouldNotHoldFunds(token, balanceFinal - balanceBefore);
+        uint256 expectedBalance = balanceBefore + facilitatorFee;
+        if (balanceFinal != expectedBalance) {
+            revert HubShouldNotHoldFunds(token, balanceFinal > expectedBalance ? balanceFinal - expectedBalance : expectedBalance - balanceFinal);
         }
         
         // 12. Emit events

@@ -50,11 +50,22 @@ contract MockFailingHook is ISettlementHook {
 /**
  * @title MockSimpleHook
  * @notice Simple test Hook that transfers funds to specified recipient
+ * @dev Also stores last call parameters for verification in tests
  */
 contract MockSimpleHook is ISettlementHook {
     using SafeERC20 for IERC20;
     
     address public immutable settlementHub;
+    
+    // Store last call parameters for test verification
+    bytes32 public lastContextKey;
+    address public lastPayer;
+    address public lastToken;
+    uint256 public lastAmount;
+    bytes32 public lastSalt;
+    address public lastPayTo;
+    address public lastFacilitator;
+    bytes public lastData;
     
     constructor(address _settlementHub) {
         settlementHub = _settlementHub;
@@ -71,6 +82,16 @@ contract MockSimpleHook is ISettlementHook {
         bytes calldata data
     ) external override returns (bytes memory) {
         require(msg.sender == settlementHub, "Only settlement hub");
+        
+        // Store parameters for test verification
+        lastContextKey = contextKey;
+        lastPayer = payer;
+        lastToken = token;
+        lastAmount = amount;
+        lastSalt = salt;
+        lastPayTo = payTo;
+        lastFacilitator = facilitator;
+        lastData = data;
         
         // Decode recipient address
         address recipient = abi.decode(data, (address));

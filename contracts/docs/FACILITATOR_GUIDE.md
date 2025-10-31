@@ -28,6 +28,9 @@ Your Facilitator needs to detect when a payment request requires settlement exte
 ```json
 {
   "settlementHub": "0x...",  // SettlementHub contract address
+  "salt": "0x...",           // Unique identifier (32 bytes, for idempotency)
+  "payTo": "0x...",          // Final recipient address
+  "facilitatorFee": "10000", // Facilitator fee amount (e.g., 0.01 USDC = 10000 in 6 decimals)
   "hook": "0x...",           // Hook contract address  
   "hookData": "0x..."        // Encoded hook parameters
 }
@@ -79,9 +82,9 @@ When settlement mode is detected, call `SettlementHub.settleAndExecute` instead 
 | Mode | Target Contract | Method | Parameters |
 |------|----------------|--------|------------|
 | Standard | ERC-3009 Token | `transferWithAuthorization` | token, from, to, value, validAfter, validBefore, nonce, signature |
-| Settlement | SettlementHub | `settleAndExecute` | **same as above** + hook, hookData |
+| Settlement | SettlementHub | `settleAndExecute` | **same as above** + salt, payTo, facilitatorFee, hook, hookData |
 
-**Key Insight:** Settlement mode uses the same authorization parameters but adds hook execution!
+**Key Insight:** Settlement mode uses the same authorization parameters but adds settlement-specific parameters!
 
 ### 4. Parameter Extraction
 
@@ -92,6 +95,9 @@ Parse the `extra` field to extract settlement parameters:
 {
   "extra": {
     "settlementHub": "0x1234...",
+    "salt": "0x5abc...",
+    "payTo": "0x9def...",
+    "facilitatorFee": "10000",
     "hook": "0x5678...", 
     "hookData": "0xabcd..."
   }
@@ -103,11 +109,17 @@ Parse the `extra` field to extract settlement parameters:
 ```pseudocode
 function parseSettlementExtra(extra):
     validate extra.settlementHub exists
+    validate extra.salt exists
+    validate extra.payTo exists
+    validate extra.facilitatorFee exists
     validate extra.hook exists  
     validate extra.hookData exists
     
     return {
         settlementHub: extra.settlementHub,
+        salt: extra.salt,
+        payTo: extra.payTo,
+        facilitatorFee: extra.facilitatorFee,
         hook: extra.hook,
         hookData: extra.hookData
     }
@@ -120,15 +132,18 @@ Call the SettlementHub contract with the extracted parameters:
 **Contract ABI:**
 ```solidity
 function settleAndExecute(
-    address token,      // ERC-3009 token address
-    address from,       // Payer address
-    uint256 value,      // Payment amount
-    uint256 validAfter, // Authorization valid after
-    uint256 validBefore,// Authorization valid before  
-    bytes32 nonce,      // Authorization nonce
-    bytes signature,    // Authorization signature
-    address hook,       // Hook contract address
-    bytes hookData      // Hook execution data
+    address token,         // ERC-3009 token address
+    address from,          // Payer address
+    uint256 value,         // Payment amount
+    uint256 validAfter,    // Authorization valid after
+    uint256 validBefore,   // Authorization valid before  
+    bytes32 nonce,         // Authorization nonce (must equal commitment hash)
+    bytes signature,       // Authorization signature
+    bytes32 salt,          // Unique identifier (for idempotency)
+    address payTo,         // Final recipient address
+    uint256 facilitatorFee,// Facilitator fee amount
+    address hook,          // Hook contract address
+    bytes hookData         // Hook execution data
 ) external;
 ```
 
@@ -143,15 +158,18 @@ function settleWithHub(request):
     // 2. Create contract instance
     settlementHub = createContract(extra.settlementHub, SETTLEMENT_HUB_ABI)
     
-    // 3. Call settleAndExecute
+    // 3. Call settleAndExecute with all parameters
     transaction = settlementHub.settleAndExecute(
         request.paymentRequirements.asset,    // token
         payload.authorization.from,           // from
         payload.authorization.value,          // value
         payload.authorization.validAfter,     // validAfter
         payload.authorization.validBefore,    // validBefore
-        payload.authorization.nonce,          // nonce
+        payload.authorization.nonce,          // nonce (commitment hash)
         payload.signature,                    // signature
+        extra.salt,                          // salt
+        extra.payTo,                         // payTo
+        extra.facilitatorFee,                // facilitatorFee
         extra.hook,                          // hook
         extra.hookData                       // hookData
     )
@@ -176,12 +194,18 @@ interface ISettlementHub {
         uint256 validBefore,
         bytes32 nonce,
         bytes signature,
+        bytes32 salt,
+        address payTo,
+        uint256 facilitatorFee,
         address hook,
         bytes hookData
     ) external;
     
     /// @notice Check if payment is settled
     function isSettled(bytes32 contextKey) external view returns (bool);
+    
+    /// @notice Claim accumulated facilitator fees
+    function claimFees(address[] tokens) external;
 }
 ```
 
@@ -193,13 +217,28 @@ event Settled(
     address indexed payer,
     address indexed token,
     uint256 amount,
-    address hook
+    address hook,
+    bytes32 salt,
+    address payTo,
+    uint256 facilitatorFee
 );
 
 event HookExecuted(
     bytes32 indexed contextKey,
     address indexed hook,
     bytes returnData
+);
+
+event FeeAccumulated(
+    address indexed facilitator,
+    address indexed token,
+    uint256 amount
+);
+
+event FeesClaimed(
+    address indexed facilitator,
+    address indexed token,
+    uint256 amount
 );
 ```
 
@@ -218,6 +257,9 @@ event HookExecuted(
       {"name": "validBefore", "type": "uint256"},
       {"name": "nonce", "type": "bytes32"},
       {"name": "signature", "type": "bytes"},
+      {"name": "salt", "type": "bytes32"},
+      {"name": "payTo", "type": "address"},
+      {"name": "facilitatorFee", "type": "uint256"},
       {"name": "hook", "type": "address"},
       {"name": "hookData", "type": "bytes"}
     ],
@@ -232,6 +274,13 @@ event HookExecuted(
     "stateMutability": "view"
   },
   {
+    "type": "function",
+    "name": "claimFees",
+    "inputs": [{"name": "tokens", "type": "address[]"}],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
     "type": "event",
     "name": "Settled",
     "inputs": [
@@ -239,7 +288,10 @@ event HookExecuted(
       {"name": "payer", "type": "address", "indexed": true},
       {"name": "token", "type": "address", "indexed": true},
       {"name": "amount", "type": "uint256", "indexed": false},
-      {"name": "hook", "type": "address", "indexed": false}
+      {"name": "hook", "type": "address", "indexed": false},
+      {"name": "salt", "type": "bytes32", "indexed": false},
+      {"name": "payTo", "type": "address", "indexed": false},
+      {"name": "facilitatorFee", "type": "uint256", "indexed": false}
     ]
   },
   {
@@ -250,8 +302,142 @@ event HookExecuted(
       {"name": "hook", "type": "address", "indexed": true},
       {"name": "returnData", "type": "bytes", "indexed": false}
     ]
+  },
+  {
+    "type": "event",
+    "name": "FeeAccumulated",
+    "inputs": [
+      {"name": "facilitator", "type": "address", "indexed": true},
+      {"name": "token", "type": "address", "indexed": true},
+      {"name": "amount", "type": "uint256", "indexed": false}
+    ]
+  },
+  {
+    "type": "event",
+    "name": "FeesClaimed",
+    "inputs": [
+      {"name": "facilitator", "type": "address", "indexed": true},
+      {"name": "token", "type": "address", "indexed": true},
+      {"name": "amount", "type": "uint256", "indexed": false}
+    ]
   }
 ]
+```
+
+## Testing Strategy
+
+### Commitment Verification (Critical Security Feature)
+
+**⚠️ Important:** The `nonce` parameter in the EIP-3009 authorization MUST equal the commitment hash calculated from all settlement parameters. This prevents parameter tampering attacks.
+
+**Commitment Calculation:**
+
+The SettlementHub contract calculates the commitment hash as follows:
+
+```solidity
+bytes32 commitment = keccak256(abi.encodePacked(
+    "X402/settle/v1",    // Domain separator
+    chainId,             // Chain ID (anti-replay)
+    hub,                 // Hub address (cross-hub protection)
+    token,               // Token address
+    from,                // Payer address
+    value,               // Payment amount
+    validAfter,          // Valid after timestamp
+    validBefore,         // Valid before timestamp
+    salt,                // Unique identifier
+    payTo,               // Final recipient
+    facilitatorFee,      // Facilitator fee amount
+    hook,                // Hook address
+    keccak256(hookData)  // Hash of hook data
+));
+```
+
+**Security Properties:**
+
+1. **Parameter Binding**: All settlement parameters are cryptographically bound to the user's signature
+2. **Tamper Prevention**: Any modification of parameters will cause commitment verification to fail
+3. **Cross-chain Protection**: Chain ID prevents cross-chain replay attacks
+4. **Cross-hub Protection**: Hub address prevents replay across different hub instances
+
+**Facilitator Responsibilities:**
+
+- ✅ Pass parameters exactly as received from Resource Server in `extra` field
+- ✅ Do NOT modify any settlement parameters (`salt`, `payTo`, `facilitatorFee`, `hook`, `hookData`)
+- ✅ The SettlementHub contract will automatically verify the commitment matches the nonce
+- ❌ Do NOT attempt to recalculate or verify the commitment yourself - the Hub handles this
+
+**Flow:**
+
+```
+1. Resource Server → generates salt, calculates commitment
+2. Resource Server → returns commitment as part of 402 response
+3. Client → uses commitment as EIP-3009 nonce, signs authorization
+4. Client → sends payment with signature to Facilitator
+5. Facilitator → extracts parameters from extra, calls settleAndExecute
+6. SettlementHub → verifies nonce == commitment, proceeds if valid
+```
+
+## Facilitator Fee Mechanism
+
+The SettlementHub contract includes a built-in fee accumulation and claiming mechanism for facilitators.
+
+**How It Works:**
+
+1. **Fee Deduction**: When `settleAndExecute` is called with a non-zero `facilitatorFee`:
+   - The full `value` is transferred from the payer to the Hub
+   - The `facilitatorFee` is accumulated in the Hub for the facilitator (msg.sender)
+   - The Hook receives `value - facilitatorFee` (net amount)
+
+2. **Fee Storage**: Fees are stored per facilitator per token:
+   ```solidity
+   mapping(address => mapping(address => uint256)) public pendingFees;
+   ```
+
+3. **Fee Claiming**: Facilitators can batch-claim accumulated fees:
+   ```solidity
+   function claimFees(address[] calldata tokens) external;
+   ```
+
+**Example Flow:**
+
+```
+Payment: 1.00 USDC
+Facilitator Fee: 0.01 USDC
+Net to Hook: 0.99 USDC
+
+1. Hub receives 1.00 USDC from payer
+2. Hub accumulates 0.01 USDC for facilitator
+3. Hook receives approval for 0.99 USDC
+4. Hook executes business logic with 0.99 USDC
+5. Later: Facilitator calls claimFees([USDC]) → receives 0.01 USDC
+```
+
+**Facilitator Fee Configuration:**
+
+The `facilitatorFee` is determined by the Resource Server and included in the `extra` field. As a facilitator:
+
+- ✅ You receive the fee specified in `extra.facilitatorFee`
+- ✅ Fees accumulate automatically during settlement
+- ✅ You can claim fees at any time by calling `claimFees()`
+- ✅ You can batch-claim fees for multiple tokens
+- ⚠️ The fee amount is part of the commitment and cannot be modified
+
+**Events:**
+
+```solidity
+// Emitted when fee is accumulated during settlement
+event FeeAccumulated(
+    address indexed facilitator,
+    address indexed token,
+    uint256 amount
+);
+
+// Emitted when facilitator claims fees
+event FeesClaimed(
+    address indexed facilitator,
+    address indexed token,
+    uint256 amount
+);
 ```
 
 ## Testing Strategy

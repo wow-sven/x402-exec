@@ -64,10 +64,9 @@ The `nonce` parameter must equal the commitment hash calculated as:
 commitment = keccak256(abi.encodePacked(
     "X402/settle/v1",
     chainId,
-    hub,
+    hub,           // Hub address (cross-hub replay protection)
     token,
     from,
-    hub,  // to
     value,
     validAfter,
     validBefore,
@@ -80,6 +79,8 @@ commitment = keccak256(abi.encodePacked(
 ```
 
 This ensures all parameters are cryptographically bound to the Client's signature.
+
+**Note**: The `to` parameter from EIP-3009 (always equals Hub address) is not included in the commitment hash to avoid redundancy, as the Hub address is already present for cross-hub replay protection.
 
 #### `isSettled`
 

@@ -32,7 +32,10 @@ contract SettlementHubTest is Test {
         address indexed payer,
         address indexed token,
         uint256 amount,
-        address hook
+        address hook,
+        bytes32 salt,
+        address payTo,
+        uint256 facilitatorFee
     );
     
     event HookExecuted(
@@ -40,6 +43,48 @@ contract SettlementHubTest is Test {
         address indexed hook,
         bytes returnData
     );
+    
+    event FeeAccumulated(
+        address indexed facilitator,
+        address indexed token,
+        uint256 amount
+    );
+    
+    event FeesClaimed(
+        address indexed facilitator,
+        address indexed token,
+        uint256 amount
+    );
+    
+    // Helper function to calculate commitment hash
+    function calculateCommitment(
+        address token,
+        address from,
+        uint256 value,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 salt,
+        address payTo,
+        uint256 facilitatorFee,
+        address hook,
+        bytes memory hookData
+    ) internal view returns (bytes32) {
+        return keccak256(abi.encodePacked(
+            "X402/settle/v1",
+            block.chainid,
+            address(hub),
+            token,
+            from,
+            value,
+            validAfter,
+            validBefore,
+            salt,
+            payTo,
+            facilitatorFee,
+            hook,
+            keccak256(hookData)
+        ));
+    }
     
     function setUp() public {
         // Deploy contracts
@@ -80,9 +125,25 @@ contract SettlementHubTest is Test {
     }
     
     function testSettleAndExecuteWithSimpleHook() public {
-        bytes32 nonce = bytes32(uint256(1));
+        bytes32 salt = bytes32(uint256(1));
+        address payTo = merchant;
+        uint256 facilitatorFee = 0;
         bytes memory signature = "mock_signature";
         bytes memory hookData = abi.encode(merchant);
+        
+        // Calculate commitment (which becomes the nonce)
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
         
         // Calculate contextKey
         bytes32 contextKey = hub.calculateContextKey(payer, address(token), nonce);
@@ -92,7 +153,7 @@ contract SettlementHubTest is Test {
         emit HookExecuted(contextKey, address(simpleHook), abi.encode(merchant, AMOUNT));
         
         vm.expectEmit(true, true, true, true);
-        emit Settled(contextKey, payer, address(token), AMOUNT, address(simpleHook));
+        emit Settled(contextKey, payer, address(token), AMOUNT, address(simpleHook), salt, payTo, facilitatorFee);
         
         // Execute settlement
         hub.settleAndExecute(
@@ -103,6 +164,9 @@ contract SettlementHubTest is Test {
             VALID_BEFORE,
             nonce,
             signature,
+            salt,
+            payTo,
+            facilitatorFee,
             address(simpleHook),
             hookData
         );
@@ -120,9 +184,25 @@ contract SettlementHubTest is Test {
     }
     
     function testIdempotency() public {
-        bytes32 nonce = bytes32(uint256(2));
+        bytes32 salt = bytes32(uint256(2));
+        address payTo = merchant;
+        uint256 facilitatorFee = 0;
         bytes memory signature = "mock_signature";
         bytes memory hookData = abi.encode(merchant);
+        
+        // Calculate commitment nonce
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
         
         // First call: success
         hub.settleAndExecute(
@@ -133,6 +213,9 @@ contract SettlementHubTest is Test {
             VALID_BEFORE,
             nonce,
             signature,
+            salt,
+            payTo,
+            facilitatorFee,
             address(simpleHook),
             hookData
         );
@@ -156,15 +239,34 @@ contract SettlementHubTest is Test {
             VALID_BEFORE,
             nonce,
             signature,
+            salt,
+            payTo,
+            facilitatorFee,
             address(simpleHook),
             hookData
         );
     }
     
     function testHookFailure() public {
-        bytes32 nonce = bytes32(uint256(3));
+        bytes32 salt = bytes32(uint256(3));
+        address payTo = payer;
+        uint256 facilitatorFee = 0;
         bytes memory signature = "mock_signature";
         bytes memory hookData = "";
+        
+        // Calculate commitment nonce
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(failingHook),
+            hookData
+        );
         
         // Set Hook to failure mode
         failingHook.setShouldFail(true);
@@ -186,6 +288,9 @@ contract SettlementHubTest is Test {
             VALID_BEFORE,
             nonce,
             signature,
+            salt,
+            payTo,
+            facilitatorFee,
             address(failingHook),
             hookData
         );
@@ -200,8 +305,25 @@ contract SettlementHubTest is Test {
     }
     
     function testSettleWithoutHook() public {
-        bytes32 nonce = bytes32(uint256(4));
+        bytes32 salt = bytes32(uint256(4));
+        address payTo = payer;
+        uint256 facilitatorFee = 0;
         bytes memory signature = "mock_signature";
+        bytes memory hookData = "";
+        
+        // Calculate commitment nonce
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(0),
+            hookData
+        );
         
         // No Hook (hook = address(0))
         vm.expectRevert(
@@ -220,13 +342,18 @@ contract SettlementHubTest is Test {
             VALID_BEFORE,
             nonce,
             signature,
+            salt,
+            payTo,
+            facilitatorFee,
             address(0), // No Hook
-            ""
+            hookData
         );
     }
     
     function testRevenueSplitHook() public {
-        bytes32 nonce = bytes32(uint256(5));
+        bytes32 salt = bytes32(uint256(5));
+        address payTo = merchant; // Merchant is primary recipient
+        uint256 facilitatorFee = 0;
         bytes memory signature = "mock_signature";
         
         // Setup split configuration: 70% to merchant, 30% to platform
@@ -243,6 +370,20 @@ contract SettlementHubTest is Test {
         
         bytes memory hookData = abi.encode(splits);
         
+        // Calculate commitment nonce
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(splitHook),
+            hookData
+        );
+        
         // Execute settlement
         hub.settleAndExecute(
             address(token),
@@ -252,6 +393,9 @@ contract SettlementHubTest is Test {
             VALID_BEFORE,
             nonce,
             signature,
+            salt,
+            payTo,
+            facilitatorFee,
             address(splitHook),
             hookData
         );
@@ -264,7 +408,9 @@ contract SettlementHubTest is Test {
     }
     
     function testInvalidRevenueSplit() public {
-        bytes32 nonce = bytes32(uint256(7));
+        bytes32 salt = bytes32(uint256(7));
+        address payTo = merchant;
+        uint256 facilitatorFee = 0;
         bytes memory signature = "mock_signature";
         
         // Setup invalid split configuration: total not equal to 100%
@@ -279,6 +425,20 @@ contract SettlementHubTest is Test {
         });
         
         bytes memory hookData = abi.encode(splits);
+        
+        // Calculate commitment nonce
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(splitHook),
+            hookData
+        );
         
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -295,19 +455,38 @@ contract SettlementHubTest is Test {
             VALID_BEFORE,
             nonce,
             signature,
+            salt,
+            payTo,
+            facilitatorFee,
             address(splitHook),
             hookData
         );
     }
     
     function testTransferFailed() public {
-        bytes32 nonce = bytes32(uint256(6));
+        bytes32 salt = bytes32(uint256(6));
+        address payTo = merchant;
+        uint256 facilitatorFee = 0;
         bytes memory signature = "mock_signature";
         bytes memory hookData = abi.encode(merchant);
         
         // Payer doesn't have sufficient balance
         address poorPayer = makeAddr("poorPayer");
         token.mint(poorPayer, AMOUNT / 2); // Only half the amount
+        
+        // Calculate commitment nonce
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            poorPayer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
         
         vm.expectRevert(); // transferWithAuthorization will fail
         
@@ -319,8 +498,988 @@ contract SettlementHubTest is Test {
             VALID_BEFORE,
             nonce,
             signature,
+            salt,
+            payTo,
+            facilitatorFee,
             address(simpleHook),
             hookData
         );
+    }
+    
+    // ===== New Commitment Tests =====
+    
+    function testCommitmentCalculation() public {
+        bytes32 salt = bytes32(uint256(100));
+        address payTo = merchant;
+        uint256 facilitatorFee = 10000; // 0.01 USDC
+        bytes memory hookData = abi.encode(merchant);
+        bytes memory signature = "mock_signature";
+        
+        // Calculate commitment
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // This should succeed (commitment matches)
+        hub.settleAndExecute(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            nonce,
+            signature,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        bytes32 contextKey = hub.calculateContextKey(payer, address(token), nonce);
+        assertTrue(hub.isSettled(contextKey));
+    }
+    
+    function testInvalidCommitmentRejected() public {
+        bytes32 salt = bytes32(uint256(101));
+        address payTo = merchant;
+        uint256 facilitatorFee = 10000;
+        bytes memory hookData = abi.encode(merchant);
+        bytes memory signature = "mock_signature";
+        
+        // Calculate correct commitment
+        bytes32 correctNonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // Use a different nonce (invalid commitment)
+        bytes32 wrongNonce = bytes32(uint256(999));
+        
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SettlementHub.InvalidCommitment.selector,
+                correctNonce,
+                wrongNonce
+            )
+        );
+        
+        hub.settleAndExecute(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            wrongNonce,
+            signature,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+    }
+    
+    function testCommitmentPreventsTamperingValue() public {
+        bytes32 salt = bytes32(uint256(102));
+        address payTo = merchant;
+        uint256 facilitatorFee = 10000;
+        bytes memory hookData = abi.encode(merchant);
+        bytes memory signature = "mock_signature";
+        
+        // Calculate commitment with original value
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // Try to use different value (tampered)
+        uint256 tamperedValue = AMOUNT * 2;
+        
+        bytes32 expectedCommitment = calculateCommitment(
+            address(token),
+            payer,
+            tamperedValue,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SettlementHub.InvalidCommitment.selector,
+                expectedCommitment,
+                nonce
+            )
+        );
+        
+        hub.settleAndExecute(
+            address(token),
+            payer,
+            tamperedValue,
+            VALID_AFTER,
+            VALID_BEFORE,
+            nonce,
+            signature,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+    }
+    
+    function testCommitmentPreventsTamperingHook() public {
+        bytes32 salt = bytes32(uint256(103));
+        address payTo = merchant;
+        uint256 facilitatorFee = 10000;
+        bytes memory hookData = abi.encode(merchant);
+        bytes memory signature = "mock_signature";
+        
+        // Calculate commitment with simpleHook
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // Try to use different hook (tampered)
+        bytes32 expectedCommitment = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(failingHook),
+            hookData
+        );
+        
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SettlementHub.InvalidCommitment.selector,
+                expectedCommitment,
+                nonce
+            )
+        );
+        
+        hub.settleAndExecute(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            nonce,
+            signature,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(failingHook),
+            hookData
+        );
+    }
+    
+    function testCommitmentPreventsTamperingHookData() public {
+        bytes32 salt = bytes32(uint256(104));
+        address payTo = merchant;
+        uint256 facilitatorFee = 10000;
+        bytes memory hookData = abi.encode(merchant);
+        bytes memory signature = "mock_signature";
+        
+        // Calculate commitment with original hookData
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // Try to use different hookData (tampered)
+        bytes memory tamperedHookData = abi.encode(platform);
+        
+        bytes32 expectedCommitment = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            tamperedHookData
+        );
+        
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SettlementHub.InvalidCommitment.selector,
+                expectedCommitment,
+                nonce
+            )
+        );
+        
+        hub.settleAndExecute(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            nonce,
+            signature,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            tamperedHookData
+        );
+    }
+    
+    function testCommitmentPreventsTamperingFacilitatorFee() public {
+        bytes32 salt = bytes32(uint256(105));
+        address payTo = merchant;
+        uint256 facilitatorFee = 10000;
+        bytes memory hookData = abi.encode(merchant);
+        bytes memory signature = "mock_signature";
+        
+        // Calculate commitment with original fee
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // Try to use different fee (tampered)
+        uint256 tamperedFee = 50000;
+        
+        bytes32 expectedCommitment = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            tamperedFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SettlementHub.InvalidCommitment.selector,
+                expectedCommitment,
+                nonce
+            )
+        );
+        
+        hub.settleAndExecute(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            nonce,
+            signature,
+            salt,
+            payTo,
+            tamperedFee,
+            address(simpleHook),
+            hookData
+        );
+    }
+    
+    function testCommitmentPreventsTamperingPayTo() public {
+        bytes32 salt = bytes32(uint256(106));
+        address payTo = merchant;
+        uint256 facilitatorFee = 10000;
+        bytes memory hookData = abi.encode(merchant);
+        bytes memory signature = "mock_signature";
+        
+        // Calculate commitment with original payTo
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // Try to use different payTo (tampered)
+        address tamperedPayTo = platform;
+        
+        bytes32 expectedCommitment = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            tamperedPayTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SettlementHub.InvalidCommitment.selector,
+                expectedCommitment,
+                nonce
+            )
+        );
+        
+        hub.settleAndExecute(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            nonce,
+            signature,
+            salt,
+            tamperedPayTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+    }
+    
+    function testCommitmentPreventsTamperingSalt() public {
+        bytes32 salt = bytes32(uint256(107));
+        address payTo = merchant;
+        uint256 facilitatorFee = 10000;
+        bytes memory hookData = abi.encode(merchant);
+        bytes memory signature = "mock_signature";
+        
+        // Calculate commitment with original salt
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // Try to use different salt (tampered)
+        bytes32 tamperedSalt = bytes32(uint256(999));
+        
+        bytes32 expectedCommitment = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            tamperedSalt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SettlementHub.InvalidCommitment.selector,
+                expectedCommitment,
+                nonce
+            )
+        );
+        
+        hub.settleAndExecute(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            nonce,
+            signature,
+            tamperedSalt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+    }
+    
+    // ===== Facilitator Fee Tests =====
+    
+    function testFacilitatorFeeAccumulation() public {
+        bytes32 salt = bytes32(uint256(200));
+        address payTo = merchant;
+        uint256 facilitatorFee = 10000; // 0.01 USDC
+        bytes memory hookData = abi.encode(merchant);
+        bytes memory signature = "mock_signature";
+        address facilitator = address(this);
+        
+        // Calculate commitment
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // Check initial pending fees
+        assertEq(hub.getPendingFees(facilitator, address(token)), 0);
+        
+        // Execute settlement
+        vm.expectEmit(true, true, false, true);
+        emit FeeAccumulated(facilitator, address(token), facilitatorFee);
+        
+        hub.settleAndExecute(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            nonce,
+            signature,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // Check pending fees after settlement
+        assertEq(hub.getPendingFees(facilitator, address(token)), facilitatorFee);
+        
+        // Verify merchant received amount minus fee
+        assertEq(token.balanceOf(merchant), AMOUNT - facilitatorFee);
+    }
+    
+    function testClaimFeesMultipleTokens() public {
+        // Setup: Accumulate fees for two different tokens
+        MockUSDC token2 = new MockUSDC();
+        token2.mint(payer, 10 * AMOUNT);
+        
+        bytes32 salt1 = bytes32(uint256(201));
+        bytes32 salt2 = bytes32(uint256(202));
+        address payTo = merchant;
+        uint256 facilitatorFee = 10000;
+        bytes memory hookData = abi.encode(merchant);
+        bytes memory signature = "mock_signature";
+        address facilitator = address(this);
+        
+        // First settlement with token1
+        bytes32 nonce1 = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt1,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        hub.settleAndExecute(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            nonce1,
+            signature,
+            salt1,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // Second settlement with token2
+        bytes32 nonce2 = calculateCommitment(
+            address(token2),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt2,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        hub.settleAndExecute(
+            address(token2),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            nonce2,
+            signature,
+            salt2,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // Verify pending fees
+        assertEq(hub.getPendingFees(facilitator, address(token)), facilitatorFee);
+        assertEq(hub.getPendingFees(facilitator, address(token2)), facilitatorFee);
+        
+        // Claim fees for both tokens
+        address[] memory tokens = new address[](2);
+        tokens[0] = address(token);
+        tokens[1] = address(token2);
+        
+        uint256 balanceBefore = token.balanceOf(facilitator);
+        uint256 balanceBefore2 = token2.balanceOf(facilitator);
+        
+        vm.expectEmit(true, true, false, true);
+        emit FeesClaimed(facilitator, address(token), facilitatorFee);
+        vm.expectEmit(true, true, false, true);
+        emit FeesClaimed(facilitator, address(token2), facilitatorFee);
+        
+        hub.claimFees(tokens);
+        
+        // Verify balances
+        assertEq(token.balanceOf(facilitator), balanceBefore + facilitatorFee);
+        assertEq(token2.balanceOf(facilitator), balanceBefore2 + facilitatorFee);
+        
+        // Verify pending fees are cleared
+        assertEq(hub.getPendingFees(facilitator, address(token)), 0);
+        assertEq(hub.getPendingFees(facilitator, address(token2)), 0);
+    }
+    
+    function testClaimFeesWithZeroBalance() public {
+        address facilitator = address(this);
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(token);
+        
+        // No fees accumulated
+        assertEq(hub.getPendingFees(facilitator, address(token)), 0);
+        
+        // Claiming should not revert, just not emit event
+        hub.claimFees(tokens);
+        
+        // Balance unchanged
+        assertEq(hub.getPendingFees(facilitator, address(token)), 0);
+    }
+    
+    function testZeroFacilitatorFee() public {
+        bytes32 salt = bytes32(uint256(203));
+        address payTo = merchant;
+        uint256 facilitatorFee = 0; // No fee
+        bytes memory hookData = abi.encode(merchant);
+        bytes memory signature = "mock_signature";
+        address facilitator = address(this);
+        
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // Execute settlement with zero fee
+        hub.settleAndExecute(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            nonce,
+            signature,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // No fees accumulated
+        assertEq(hub.getPendingFees(facilitator, address(token)), 0);
+        
+        // Merchant received full amount
+        assertEq(token.balanceOf(merchant), AMOUNT);
+    }
+    
+    function testFacilitatorFeeDeduction() public {
+        bytes32 salt = bytes32(uint256(204));
+        address payTo = merchant;
+        uint256 facilitatorFee = 100000; // 0.1 USDC
+        bytes memory hookData = abi.encode(merchant);
+        bytes memory signature = "mock_signature";
+        
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        hub.settleAndExecute(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            nonce,
+            signature,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // Hook should receive amount minus fee
+        uint256 expectedAmount = AMOUNT - facilitatorFee;
+        assertEq(token.balanceOf(merchant), expectedAmount);
+        
+        // Verify Hook received correct amount through storage
+        assertEq(simpleHook.lastAmount(), expectedAmount);
+    }
+    
+    // ===== Hook Parameter Tests =====
+    
+    function testHookReceivesCorrectAmount() public {
+        bytes32 salt = bytes32(uint256(300));
+        address payTo = merchant;
+        uint256 facilitatorFee = 50000; // 0.05 USDC
+        bytes memory hookData = abi.encode(merchant);
+        bytes memory signature = "mock_signature";
+        
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        hub.settleAndExecute(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            nonce,
+            signature,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // Verify Hook received correct parameters
+        uint256 expectedAmount = AMOUNT - facilitatorFee;
+        assertEq(simpleHook.lastAmount(), expectedAmount);
+        assertEq(simpleHook.lastPayer(), payer);
+        assertEq(simpleHook.lastToken(), address(token));
+    }
+    
+    function testHookReceivesAllParameters() public {
+        bytes32 salt = bytes32(uint256(301));
+        address payTo = merchant;
+        uint256 facilitatorFee = 10000;
+        bytes memory hookData = abi.encode(merchant);
+        bytes memory signature = "mock_signature";
+        
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        bytes32 expectedContextKey = hub.calculateContextKey(payer, address(token), nonce);
+        
+        hub.settleAndExecute(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            nonce,
+            signature,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // Verify all parameters
+        assertEq(simpleHook.lastContextKey(), expectedContextKey);
+        assertEq(simpleHook.lastPayer(), payer);
+        assertEq(simpleHook.lastToken(), address(token));
+        assertEq(simpleHook.lastAmount(), AMOUNT - facilitatorFee);
+        assertEq(simpleHook.lastSalt(), salt);
+        assertEq(simpleHook.lastPayTo(), payTo);
+        assertEq(simpleHook.lastFacilitator(), address(this)); // msg.sender
+        assertEq(simpleHook.lastData(), hookData);
+    }
+    
+    function testFacilitatorIsMsgSender() public {
+        bytes32 salt = bytes32(uint256(302));
+        address payTo = merchant;
+        uint256 facilitatorFee = 10000;
+        bytes memory hookData = abi.encode(merchant);
+        bytes memory signature = "mock_signature";
+        
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // Call from this contract
+        hub.settleAndExecute(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            nonce,
+            signature,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // Verify facilitator is msg.sender (this contract)
+        assertEq(simpleHook.lastFacilitator(), address(this));
+    }
+    
+    // ===== Edge Case Tests =====
+    
+    function testSaltUniquenessEnsuresIdempotency() public {
+        address payTo = merchant;
+        uint256 facilitatorFee = 10000;
+        bytes memory hookData = abi.encode(merchant);
+        bytes memory signature = "mock_signature";
+        
+        // Same parameters, different salt - should succeed both times
+        bytes32 salt1 = bytes32(uint256(400));
+        bytes32 salt2 = bytes32(uint256(401));
+        
+        bytes32 nonce1 = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt1,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        bytes32 nonce2 = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt2,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // First settlement
+        hub.settleAndExecute(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            nonce1,
+            signature,
+            salt1,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        bytes32 contextKey1 = hub.calculateContextKey(payer, address(token), nonce1);
+        assertTrue(hub.isSettled(contextKey1));
+        
+        // Mint more tokens for second payment
+        token.mint(payer, AMOUNT);
+        
+        // Second settlement with different salt - should succeed
+        hub.settleAndExecute(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            nonce2,
+            signature,
+            salt2,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        bytes32 contextKey2 = hub.calculateContextKey(payer, address(token), nonce2);
+        assertTrue(hub.isSettled(contextKey2));
+        
+        // Both settlements succeeded
+        assertEq(token.balanceOf(merchant), 2 * (AMOUNT - facilitatorFee));
+    }
+    
+    function testRepeatedClaimFeesDoesNotFail() public {
+        bytes32 salt = bytes32(uint256(402));
+        address payTo = merchant;
+        uint256 facilitatorFee = 10000;
+        bytes memory hookData = abi.encode(merchant);
+        bytes memory signature = "mock_signature";
+        address facilitator = address(this);
+        
+        bytes32 nonce = calculateCommitment(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        // Accumulate some fees
+        hub.settleAndExecute(
+            address(token),
+            payer,
+            AMOUNT,
+            VALID_AFTER,
+            VALID_BEFORE,
+            nonce,
+            signature,
+            salt,
+            payTo,
+            facilitatorFee,
+            address(simpleHook),
+            hookData
+        );
+        
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(token);
+        
+        // First claim
+        hub.claimFees(tokens);
+        assertEq(hub.getPendingFees(facilitator, address(token)), 0);
+        
+        // Second claim (nothing to claim) - should not revert
+        hub.claimFees(tokens);
+        assertEq(hub.getPendingFees(facilitator, address(token)), 0);
+        
+        // Third claim - still should not revert
+        hub.claimFees(tokens);
+        assertEq(hub.getPendingFees(facilitator, address(token)), 0);
     }
 }

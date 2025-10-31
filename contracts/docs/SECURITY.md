@@ -41,7 +41,6 @@ The protocol now uses a **commitment hash** mechanism to bind all business param
        hub,
        token,
        from,
-       to (= hub),
        value,
        validAfter,
        validBefore,
@@ -52,6 +51,8 @@ The protocol now uses a **commitment hash** mechanism to bind all business param
        keccak256(hookData)
    ))
    ```
+   
+   **Note**: The `to` parameter (always Hub address) is not included to avoid redundancy with `hub`.
 
 3. **Client** uses commitment hash as EIP-3009 `nonce` and signs
 
