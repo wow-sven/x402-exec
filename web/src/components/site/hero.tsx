@@ -5,12 +5,12 @@ import { ApplicationHooksSnippets } from "./application-hooks-snippets";
 // Simplified hero: remove illustration and complex code block.
 // Add a small installation snippet with common package managers.
 export function Hero() {
-  const installCodes: Record<string, string> = {
-    pnpm: "pnpm install x402-exec",
-    npm: "npm install x402-exec",
-    yarn: "yarn add x402-exec",
-    bun: "bun add x402-exec",
-  };
+  // const installCodes: Record<string, string> = {
+  //   pnpm: "pnpm install x402-exec",
+  //   npm: "npm install x402-exec",
+  //   yarn: "yarn add x402-exec",
+  //   bun: "bun add x402-exec",
+  // };
 
   return (
     <section className="relative">
