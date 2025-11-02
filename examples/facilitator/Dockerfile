@@ -20,12 +20,12 @@ COPY . .
 # Install all dependencies (including workspace dependencies)
 RUN pnpm install --frozen-lockfile
 
-# Build x402 dependencies first
+# Build x402 dependencies once
 RUN pnpm run build:x402
 
-# Build both facilitator and showcase-server
-RUN pnpm run build:facilitator
-RUN pnpm run build:server
+# Build both services (without rebuilding x402)
+RUN pnpm --filter='@nuwa-ai/facilitator' build
+RUN pnpm --filter=x402-exec-showcase-server build
 
 # Clean up unnecessary files to reduce image size
 RUN rm -rf .git deps/x402/.git
@@ -52,7 +52,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD sh -c 'if [ "$SERVICE_NAME" = "showcase-server" ]; then \
       wget -qO- http://localhost:${PORT:-3000}/api/health || exit 1; \
     else \
-      node -e "require(\"http\").get(\"http://localhost:${PORT:-3000}/supported\", (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"; \
+      wget -qO- http://localhost:${PORT:-3000}/supported || exit 1; \
     fi'
 
 # Conditional startup based on SERVICE_NAME
