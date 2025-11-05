@@ -4,16 +4,23 @@
  */
 
 import { useState, useEffect } from 'react';
-import { usePayment } from '../hooks/usePayment';
+import { PaymentDialog } from '../components/PaymentDialog';
 import { PaymentStatus } from '../components/PaymentStatus';
-import { buildApiUrl } from '../config';
+import { buildApiUrl, Network, NETWORKS } from '../config';
 
-interface RandomNFTProps {
-  isConnected: boolean;
-  walletAddress: string;
-}
+interface RandomNFTProps {}
 
 interface NFTInfo {
+  networks: Record<Network, {
+    collection: {
+      name: string;
+      symbol: string;
+      maxSupply: number;
+      currentSupply: number;
+      remaining: number;
+    };
+  }>;
+  // Legacy format for backward compatibility
   collection: {
     name: string;
     symbol: string;
@@ -23,9 +30,12 @@ interface NFTInfo {
   };
 }
 
-export function RandomNFT({ isConnected, walletAddress }: RandomNFTProps) {
+export function RandomNFT({}: RandomNFTProps) {
   const [nftInfo, setNftInfo] = useState<NFTInfo | null>(null);
-  const { status, error, pay, reset, result } = usePayment();
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [error, setError] = useState<string>('');
+  const [result, setResult] = useState<any>(null);
 
   useEffect(() => {
     fetch(buildApiUrl('/api/scenario-2/info'))
@@ -34,20 +44,22 @@ export function RandomNFT({ isConnected, walletAddress }: RandomNFTProps) {
       .catch(console.error);
   }, [status]); // Refresh after successful payment
 
-  const handlePay = async () => {
-    if (!isConnected) {
-      alert('Please connect your wallet first');
-      return;
-    }
+  const handlePaymentSuccess = (result: any) => {
+    setResult(result);
+    setStatus('success');
+    setShowPaymentDialog(false);
+  };
 
-    try {
-      await pay('/api/scenario-2/payment', { 
-        recipient: walletAddress,
-        merchantAddress: '0x1111111111111111111111111111111111111111' // Default merchant address
-      });
-    } catch (err) {
-      // Error handled by usePayment hook
-    }
+  const handlePaymentError = (error: string) => {
+    setError(error);
+    setStatus('error');
+    setShowPaymentDialog(false);
+  };
+
+  const reset = () => {
+    setStatus('idle');
+    setError('');
+    setResult(null);
   };
 
   const tokenId = result?.payment?.extra?.nftTokenId;
@@ -64,21 +76,115 @@ export function RandomNFT({ isConnected, walletAddress }: RandomNFTProps) {
           Pay <strong>$0.1 USDC</strong> and instantly receive a Random NFT in your wallet!
         </p>
 
-        {nftInfo && (
-          <div className="nft-stats">
-            <div className="stat">
-              <span className="stat-label">Collection</span>
-              <span className="stat-value">{nftInfo.collection.name}</span>
-            </div>
-            <div className="stat">
-              <span className="stat-label">Minted</span>
-              <span className="stat-value">
-                {nftInfo.collection.currentSupply} / {nftInfo.collection.maxSupply}
-              </span>
-            </div>
-            <div className="stat">
-              <span className="stat-label">Remaining</span>
-              <span className="stat-value">{nftInfo.collection.remaining}</span>
+        {/* Network Stats Table */}
+        {nftInfo?.networks && (
+          <div style={{ marginBottom: '20px' }}>
+            <h4 style={{ marginBottom: '12px', fontSize: '16px', fontWeight: 'bold' }}>
+              NFT Collection Status Across Networks
+            </h4>
+            <div style={{ 
+              overflowX: 'auto',
+              border: '1px solid #e1e5e9',
+              borderRadius: '8px',
+              backgroundColor: 'white'
+            }}>
+              <table style={{ 
+                width: '100%', 
+                borderCollapse: 'collapse',
+                fontSize: '14px'
+              }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#f8f9fa' }}>
+                    <th style={{ 
+                      padding: '12px 16px', 
+                      textAlign: 'left', 
+                      fontWeight: '600',
+                      borderBottom: '1px solid #e1e5e9'
+                    }}>
+                      Network
+                    </th>
+                    <th style={{ 
+                      padding: '12px 16px', 
+                      textAlign: 'center', 
+                      fontWeight: '600',
+                      borderBottom: '1px solid #e1e5e9'
+                    }}>
+                      Minted
+                    </th>
+                    <th style={{ 
+                      padding: '12px 16px', 
+                      textAlign: 'center', 
+                      fontWeight: '600',
+                      borderBottom: '1px solid #e1e5e9'
+                    }}>
+                      Remaining
+                    </th>
+                    <th style={{ 
+                      padding: '12px 16px', 
+                      textAlign: 'center', 
+                      fontWeight: '600',
+                      borderBottom: '1px solid #e1e5e9'
+                    }}>
+                      Status
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(nftInfo.networks).map(([network, networkData]) => {
+                    const config = NETWORKS[network as Network];
+                    const collection = networkData.collection;
+                    const isAvailable = collection.remaining > 0;
+                    
+                    return (
+                      <tr key={network} style={{ 
+                        borderBottom: '1px solid #f1f3f4',
+                        transition: 'background-color 0.2s'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                      >
+                        <td style={{ padding: '12px 16px', fontWeight: '500' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{
+                              width: '8px',
+                              height: '8px',
+                              borderRadius: '50%',
+                              backgroundColor: isAvailable ? '#28a745' : '#dc3545'
+                            }} />
+                            {config?.displayName || network}
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                          <span style={{ fontFamily: 'monospace' }}>
+                            {collection.currentSupply} / {collection.maxSupply}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                          <span style={{ 
+                            fontFamily: 'monospace',
+                            fontWeight: '600',
+                            color: isAvailable ? '#28a745' : '#dc3545'
+                          }}>
+                            {collection.remaining}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                          <span style={{
+                            padding: '4px 8px',
+                            borderRadius: '12px',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            backgroundColor: isAvailable ? '#d4edda' : '#f8d7da',
+                            color: isAvailable ? '#155724' : '#721c24'
+                          }}>
+                            {isAvailable ? 'Available' : 'Sold Out'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
@@ -94,20 +200,10 @@ export function RandomNFT({ isConnected, walletAddress }: RandomNFTProps) {
         </div>
 
         <button
-          onClick={handlePay}
-          disabled={
-            !isConnected ||
-            status === 'preparing' ||
-            status === 'paying' ||
-            (nftInfo?.collection.remaining === 0)
-          }
+          onClick={() => setShowPaymentDialog(true)}
           className="btn-pay"
         >
-          {nftInfo?.collection.remaining === 0
-            ? 'Sold Out'
-            : status === 'preparing' || status === 'paying'
-            ? 'Minting...'
-            : 'Mint NFT for $0.1 USDC'}
+          Select Payment Method & Mint NFT ($0.1 USDC)
         </button>
       </div>
 
@@ -156,7 +252,7 @@ export function RandomNFT({ isConnected, walletAddress }: RandomNFTProps) {
             onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#218838'}
             onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#28a745'}
           >
-            🔍 View on BaseScan →
+            🔍 View on Explorer →
           </a>
         </div>
       )}
@@ -169,7 +265,21 @@ export function RandomNFT({ isConnected, walletAddress }: RandomNFTProps) {
           </button>
         </div>
       )}
+
+      {/* Payment Dialog */}
+      <PaymentDialog
+        isOpen={showPaymentDialog}
+        onClose={() => setShowPaymentDialog(false)}
+        amount="0.1"
+        currency="USDC"
+        endpoint="/api/scenario-2/payment"
+        getRequestBody={(walletAddress) => ({
+          recipient: walletAddress, // NFT will be minted to the connected wallet
+          merchantAddress: '0x1111111111111111111111111111111111111111' // Default merchant address
+        })}
+        onSuccess={handlePaymentSuccess}
+        onError={handlePaymentError}
+      />
     </div>
   );
 }
-
