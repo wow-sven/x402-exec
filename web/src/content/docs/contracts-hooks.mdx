@@ -1,40 +1,98 @@
 ---
-title: Contracts & Hooks
-description: Dive into the settlement router, hooks, and facilitator utilities.
-navGroup: References
-navOrder: 4
-status: alpha
+title: Writing Hooks
+description: How to author Hook contracts and when to use the built‑in TransferHook.
+navGroup: Hooks
+navOrder: 3
+status: stable
 ---
 
-The showcase uses the `SettlementRouter` to execute arbitrary hooks after receiving an EIP‑3009
-authorization. A hook is any contract implementing `execute(bytes calldata data)` and returning a
-boolean success flag.
+## Interface
 
 ```solidity
-function execute(bytes calldata data) external returns (bool) {
-    PaymentContext memory ctx = abi.decode(data, (PaymentContext));
-
-    // Example: mint an NFT before releasing funds
-    nft.mint(ctx.payer);
-    usdc.transfer(ctx.merchant, ctx.amount);
-
-    return true;
+interface ISettlementHook {
+  function execute(
+    bytes32 contextKey,
+    address payer,
+    address token,
+    uint256 amount,
+    bytes calldata data
+  ) external returns (bytes memory);
 }
 ```
 
-Tips when authoring hooks:
+Rules:
 
-- Keep them deterministic — any reverts will bubble up and revert the entire settlement.
-- Use the provided `PaymentContext` (see `contracts/examples`) to avoid brittle calldata layouts.
-- Unit test hooks in isolation, then run them through the facilitator harness before shipping.
+- Only the SettlementRouter may call your hook (use an `onlyHub` guard)
+- Consume the entire `amount` from the router (router must not retain funds)
+- Keep business logic deterministic; any revert reverts the whole settlement
 
-### Facilitator Utilities
+## Basic Template
 
-The `contracts/facilitator` directory contains helpers for:
+```solidity
+contract MyHook is ISettlementHook {
+  using SafeERC20 for IERC20;
 
-- Reading facilitator fees and allowed hooks.
-- Emitting typed events the server can watch for reconciliation.
-- Validating commitment hashes so signatures remain single-use.
+  address public immutable hub;
+  modifier onlyHub() { require(msg.sender == hub, "Only hub"); _; }
+  constructor(address _hub) { hub = _hub; }
 
-For a full reference, open the `contracts/README.md` file and the example hooks in
-`contracts/examples`.
+  function execute(
+    bytes32 /*contextKey*/,
+    address /*payer*/,
+    address token,
+    uint256 amount,
+    bytes calldata data
+  ) external onlyHub returns (bytes memory) {
+    address recipient = abi.decode(data, (address));
+    IERC20(token).safeTransferFrom(hub, recipient, amount);
+    return abi.encode(recipient);
+  }
+}
+```
+
+## Built‑in TransferHook
+
+- One per network; use for simple transfers with facilitator fee support
+- Address helper: `TransferHook.getAddress(network)`
+- Data encoder: `TransferHook.encode()` for simple transfer, or `encode([{recipient,bips}, ...])`
+  for revenue splits (bips out of 10000)
+
+```transfer-hook.ts
+import { TransferHook } from "@x402x/core";
+const hook = TransferHook.getAddress("base-sepolia");
+const hookData = TransferHook.encode([{ recipient: "0xAlice...", bips: 3000 }]);
+```
+
+## Examples
+
+See full contract examples under `contracts/examples/`:
+
+- RevenueSplitHook — split across multiple parties
+- NFTMintHook — mint to payer and distribute proceeds
+- RewardHook — merchant payment + reward token to payer
+
+More in: contracts/docs/hook_guide.md
+
+import { RelatedLinks } from "@/components/docs/related-links";
+
+## Related Docs
+
+<RelatedLinks
+  items={[
+    {
+      title: "Hook Development Guide",
+      href: "https://github.com/nuwa-protocol/x402-exec/blob/main/contracts/docs/hook_guide.md",
+      description: "Design patterns, templates, and best practices.",
+    },
+    {
+      title: "Built‑in Hooks",
+      href: "https://github.com/nuwa-protocol/x402-exec/blob/main/contracts/docs/builtin_hooks.md",
+      description: "TransferHook and usage, gas notes, and migration tips.",
+    },
+    {
+      title: "Security Guide",
+      href: "https://github.com/nuwa-protocol/x402-exec/blob/main/contracts/docs/security.md",
+      description: "Threat model, invariants, and secure hook authoring.",
+    },
+  ]}
+/> 

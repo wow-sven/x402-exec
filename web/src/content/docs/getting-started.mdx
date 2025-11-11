@@ -1,93 +1,73 @@
 ---
-title: Getting Started
-description: Understand how the showcase repo is organized and what the docs cover.
-navGroup: Getting Started
+title: x402x Concepts
+description: What x402x is, why it matters, and how the programmable settlement model works.
+navGroup: Concepts
 navOrder: 1
 status: stable
 ---
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import diagram from "./x402x-diagram.png";
 
-<Alert>
-  <AlertTitle>Where To Look In The Repo</AlertTitle>
-  <AlertDescription>
-    <div>
-      • Frontend (client): {" "}
-      <a
-        href="https://github.com/nuwa-protocol/x402-exec/tree/main/examples/showcase/client"
-        target="_blank"
-        rel="noreferrer"
-      >
-        <code>examples/showcase/client</code>
-      </a>
-    </div>
-    <div>
-      • Backend (server): {" "}
-      <a
-        href="https://github.com/nuwa-protocol/x402-exec/tree/main/examples/showcase/server"
-        target="_blank"
-        rel="noreferrer"
-      >
-        <code>examples/showcase/server</code>
-      </a>
-    </div>
-    <div>
-      • Contracts & Hooks: {" "}
-      <a
-        href="https://github.com/nuwa-protocol/x402-exec/tree/main/contracts"
-        target="_blank"
-        rel="noreferrer"
-      >
-        <code>contracts/</code>
-      </a>
-      {" "}and{" "}
-      <a
-        href="https://github.com/nuwa-protocol/x402-exec/tree/main/contracts/examples"
-        target="_blank"
-        rel="noreferrer"
-      >
-        <code>contracts/examples/</code>
-      </a>
-    </div>
-  </AlertDescription>
-</Alert>
+<img src={diagram} alt="x402x overview" className="max-w-full h-auto border-none" />
 
-## Overview
+x402x (short for x402‑exec) turns a payment into an atomic pay‑and‑execute. A user signs an EIP‑3009
+authorization; the facilitator submits it to the SettlementRouter, which verifies the payment and then
+executes your Hook (on‑chain business logic). This brings real atomicity to post‑payment actions
+like revenue split, NFT mint, or loyalty points, with a native facilitator‑fee mechanism.
 
-x402‑exec enables atomic pay‑and‑execute workflows: users sign an EIP‑3009 authorization that is
-consumed by either a standard transfer or the `SettlementRouter`, which then executes a Hook (your
-business logic). The showcase implements three end‑to‑end examples on Base Sepolia:
+Key benefits:
 
-- **Referral Split** — split a single payment across multiple recipients.
-- **Random NFT Mint** — mint an NFT to the payer then send the merchant their proceeds.
-- **Loyalty Points** — distribute reward tokens to the payer while also paying the merchant.
+- Programmable settlement via Hooks; any business logic after payment
+- Atomicity; payment verification + execution in one transaction
+- Native facilitator fees; permissionless, transparent incentives
+- Backward‑compatible with existing x402; clients change only how the nonce is computed
 
-You can find the walkthrough for all flows in
-[`examples/showcase/README.md`](https://github.com/nuwa-protocol/x402-exec/blob/main/examples/showcase/README.md).
+## Core Concepts
 
-## Documentation Structure
+- SettlementRouter: on‑chain hub that verifies the commitment, consumes the EIP‑3009 authorization,
+  accumulates facilitator fees, calls Hooks, and enforces the “no hub balance” invariant
+- Hook (ISettlementHook): contract that receives context + amount and executes your logic
+- Commitment‑as‑Nonce: cryptographic hash of all settlement parameters becomes the EIP‑3009 nonce,
+  preventing parameter tampering
+- PaymentRequirements.extra: carries settlement parameters (router, salt, payTo, fee, hook, hookData)
 
-These docs are intentionally pragmatic:
+## Flow At A Glance
 
-1. **Getting Started** (you are here) — repo tour and mental model.
-2. **Guides** — client, server, and contract deep dives for the showcase flows.
-3. **References** — settlement router parameters, facilitator contract surface, and reusable snippets.
+1) Server returns 402 with PaymentRequirements (including `extra` when using settlement)
+2) Client computes commitment and signs EIP‑3009 with nonce=commitment, to=SettlementRouter
+3) Facilitator calls `SettlementRouter.settleAndExecute(...)`
+4) Router verifies commitment, transfers tokens, deducts fee, calls Hook, emits events
 
-Each MDX file lives in `src/content/docs` and exposes metadata via frontmatter. The sidebar order is
-driven by `navGroup` and `navOrder`, so you can add new pages without changing any React components.
+## x402 Compatibility
 
-## MDX Frontmatter
+If `extra.settlementRouter` is absent, the client performs a normal x402 transfer (random nonce,
+`to = payTo`). When present, the client uses the commitment as nonce and sets `to = settlementRouter`.
 
-Every doc page supports the following metadata:
+import { RelatedLinks } from "@/components/docs/related-links";
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `title` | string | Display name shown above the article. |
-| `description` | string | Short lead text rendered below the title. |
-| `navGroup` | string | Group heading in the sidebar. |
-| `navOrder` | number | Sort order for both the sidebar group and the page. |
-| `status` | `alpha \| beta \| stable` | Renders a status pill next to the title and sidebar entry. |
-| `hideFromSidebar` | boolean | Omits the page from navigation (useful for drafts or landing pages). |
+## Related Docs
 
-Feel free to add fields — they are passed through the loader and available to the MDX body via
-`frontmatter`.
+<RelatedLinks
+  items={[
+    {
+      title: "SettlementRouter API",
+      href: "https://github.com/nuwa-protocol/x402-exec/blob/main/contracts/docs/api.md",
+      description: "Contract interface and events for the settlement hub.",
+    },
+    {
+      title: "Built‑in Hooks",
+      href: "https://github.com/nuwa-protocol/x402-exec/blob/main/contracts/docs/builtin_hooks.md",
+      description: "Protocol‑level TransferHook details and usage.",
+    },
+    {
+      title: "x402 Protocol",
+      href: "https://github.com/coinbase/x402",
+      description: "Official x402 specification and reference packages.",
+    },
+    {
+      title: "EIP‑3009",
+      href: "https://eips.ethereum.org/EIPS/eip-3009",
+      description: "Transfer With Authorization standard used by x402/x402x.",
+    },
+  ]}
+/> 

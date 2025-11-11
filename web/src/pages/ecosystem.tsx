@@ -1,16 +1,15 @@
 import { ArrowUpRight } from "lucide-react";
-
+import { AnimatePresence, domAnimation, LazyMotion, m } from "motion/react";
 // import * as React from "react";
-import { LazyMotion, domAnimation, m, AnimatePresence } from "motion/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ECOSYSTEM_TAG_LABEL } from "@/constants/ecosystem/tags";
 // import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   SUPPORTED_NETWORKS,
   SUPPORTED_PAYMENT_TOKENS,
 } from "@/constants/facilitator";
-import { ECOSYSTEM_TAG_LABEL } from "@/constants/ecosystem/tags";
 import type {
   EcosystemProject,
   EcosystemProjectMetadata,
@@ -40,9 +39,11 @@ export default function EcosystemPage() {
         <p className="text-sm font-semibold uppercase tracking-wide text-primary">
           Ecosystem
         </p>
-        <h1 className="text-4xl font-bold tracking-tight">Projects built on the facilitator</h1>
+        <h1 className="text-4xl font-bold tracking-tight">
+          Projects built with x402x
+        </h1>
         <p className="text-muted-foreground max-w-3xl">
-          Discover teams that use x402 payments to ship commerce, settlement, and automation experiences.
+          Discover teams and products that use x402x to ship AI, DeFi and much more
         </p>
       </div>
 
@@ -107,25 +108,23 @@ function ProjectCard({ project }: ProjectCardProps) {
           loading="lazy"
         />
       </div>
-      <CardHeader className="sr-only">
-        {project.name}
-      </CardHeader>
+      <CardHeader className="sr-only">{project.name}</CardHeader>
       <CardContent className="flex flex-col gap-3 ">
         <div className="flex flex-row items-center gap-3 pb-3">
           <img
             src={project.logoSrc}
             alt={`${project.name} logo`}
-            className="h-10 w-10 shrink-0 rounded-md border bg-background object-cover"
+            className="size-16 shrink-0 rounded-md border bg-background object-cover"
             loading="lazy"
           />
-        <div className="min-w-0 flex-1">
-          <CardTitle className="truncate text-base font-semibold">
-            {project.name}
-          </CardTitle>
-          <Badge variant="outline" className="mt-0.5">
-            {ECOSYSTEM_TAG_LABEL[project.tag] ?? project.tag}
-          </Badge>
-        </div>
+          <div className="min-w-0 flex-1">
+            <CardTitle className="truncate text-base font-semibold">
+              {project.name}
+            </CardTitle>
+            <Badge variant="outline" className="mt-0.5">
+              {ECOSYSTEM_TAG_LABEL[project.tag] ?? project.tag}
+            </Badge>
+          </div>
           <Button variant="default" size="sm" asChild>
             <a href={project.url} target="_blank" rel="noreferrer">
               Visit

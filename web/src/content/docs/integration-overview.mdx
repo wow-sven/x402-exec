@@ -1,0 +1,113 @@
+---
+title: Integration Overview
+description: How to integrate x402x into projects that already use x402.
+navGroup: Integration
+navOrder: 2
+status: stable
+---
+
+This page shows how to add programmable settlement to an existing x402 setup. You can:
+
+- Keep your current x402 client/server, add `extra` settlement parameters, and let a facilitator
+  handle SettlementRouter calls
+- Or go serverless and call the facilitator directly from the client (see Facilitator — Client‑Side)
+
+import { CodeTabs } from "@/components/ui/shadcn-io/code-tabs";
+
+## 1) Install The Enhanced x402 Package
+
+Use npm alias so your code keeps `import ... from "x402"`:
+
+<CodeTabs
+  codes={{
+    npm: "npm install x402@npm:@x402x/x402@^0.6.6-patch.1",
+    pnpm: "pnpm add x402@npm:@x402x/x402@^0.6.6-patch.1",
+    yarn: "yarn add x402@npm:@x402x/x402@^0.6.6-patch.1",
+    bun: "bun add x402@npm:@x402x/x402@^0.6.6-patch.1",
+  }}
+  lang="bash"
+/>
+
+This adds optional `paymentRequirements` to `PaymentPayload`, enabling stateless facilitators.
+
+## 2) Generate PaymentRequirements With Settlement Extra
+
+Use `@x402x/core` to fill the required fields consistently.
+
+```payment-requirements.ts
+import { addSettlementExtra, getNetworkConfig, TransferHook } from "@x402x/core";
+
+const base = {
+  scheme: "exact",
+  network: "base-sepolia",
+  resource: "/api/premium",
+  maxAmountRequired: "1000000", // business price in atomic units
+  payTo: getNetworkConfig("base-sepolia").settlementRouter,
+  asset: getNetworkConfig("base-sepolia").usdc.address,
+};
+
+const withSettlement = addSettlementExtra(base, {
+  hook: TransferHook.getAddress("base-sepolia"),
+  hookData: TransferHook.encode(),
+  facilitatorFee: "10000", // or compute dynamically; see middlewares
+  // payTo: merchant address (defaults to base.payTo before override)
+});
+```
+
+Important: The client should include this `paymentRequirements` in its final `X-PAYMENT` header so
+the facilitator can validate the same parameters (salt, hook, fee, etc.).
+
+## 3) Client: Create X‑PAYMENT
+
+- Standard x402 mode: random 32‑byte nonce; `to = payTo`
+- Settlement mode: nonce = commitment over all settlement params; `to = settlementRouter`
+
+You can use `@x402x/fetch` to handle both modes automatically.
+
+```client-fetch.ts
+import { wrapFetchWithPayment } from "@x402x/fetch";
+
+const fetchWithPay = wrapFetchWithPayment(fetch, walletClient);
+const res = await fetchWithPay("/api/premium");
+```
+
+Or roll your own using `@x402x/core/calculateCommitment` and EIP‑712.
+
+## 4) Facilitator Integration
+
+On the server side, use our middlewares for Hono/Express to generate requirements, verify the
+posted payment, and call the facilitator automatically; or call the facilitator directly from the
+client (serverless). See the two Facilitator docs in the sidebar.
+
+## Migration Notes
+
+- If you currently use direct ERC‑3009 transfers, start with the built‑in TransferHook; gas overhead
+  is minimal and you gain fee accounting + future extensibility
+- Reserve `paymentRequirements.extra.salt` per quote; do not reuse across different quotes
+- For the best UX, query the facilitator for min fee and add it to the total (see middlewares)
+
+Related docs: docs/third-party-integration.md, contracts/docs/builtin_hooks.md
+
+import { RelatedLinks } from "@/components/docs/related-links";
+
+## Related Docs
+
+<RelatedLinks
+  items={[
+    {
+      title: "Third‑Party Integration Guide",
+      href: "https://github.com/nuwa-protocol/x402-exec/blob/main/docs/third-party-integration.md",
+      description: "Use the aliased x402 package with settlement extensions.",
+    },
+    {
+      title: "Facilitator README",
+      href: "https://github.com/nuwa-protocol/x402-exec/blob/main/facilitator/README.md",
+      description: "Setup, security, observability, and API endpoints.",
+    },
+    {
+      title: "Showcase README",
+      href: "https://github.com/nuwa-protocol/x402-exec/blob/main/examples/showcase/README.md",
+      description: "End‑to‑end scenarios demonstrating common patterns.",
+    },
+  ]}
+/> 

@@ -1,0 +1,9 @@
+{
+	"name": "x402 AI",
+	"description": "x402AI lets you interact with AI agents registered on-chain via the ERC8004 protocol and pay seamlessly using the x402 payment protocol.",
+	"url": "https://x402ai.app",
+	"paymentTokensByNetwork": {
+		"x-layer-testnet": ["USDC"]
+	},
+	"tag": "ai"
+}
