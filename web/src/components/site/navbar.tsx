@@ -6,8 +6,12 @@ import {
   NavigationMenuList,
 } from "@/components/ui/navigation-menu";
 import { FaGithub } from "react-icons/fa6";
+import { Link, useLocation } from "react-router-dom";
 
 export function Navbar() {
+  const location = useLocation();
+  const pathname = location.pathname;
+
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
@@ -15,21 +19,51 @@ export function Navbar() {
           variant="ghost"
           size="sm"
           className="px-2 font-semibold"
-          onClick={() => window.location.assign("/")}
+          asChild
         >
-          {/* <span className="inline-flex h-6 w-6 items-center justify-center rounded bg-primary text-primary-foreground text-xs">
-            ⚡
-          </span> */}
-          <span className="ml-2 text-xl font-bold tracking-tight">x402X</span>
+          <Link to="/" className="inline-flex items-center">
+            {/* <span className="inline-flex h-6 w-6 items-center justify-center rounded bg-primary text-primary-foreground text-xs">
+              ⚡
+            </span> */}
+            <span className="ml-2 text-xl font-bold tracking-tight">x402x</span>
+          </Link>
         </Button>
         <NavigationMenu className="hidden md:flex" viewport={false}>
           <NavigationMenuList className="justify-end">
             <NavigationMenuItem>
-              <NavigationMenuLink href="#/docs">Docs</NavigationMenuLink>
+              <NavigationMenuLink
+                asChild
+                data-active={pathname === "/" ? true : undefined}
+              >
+                <Link to="/">Home</Link>
+              </NavigationMenuLink>
             </NavigationMenuItem>
             <NavigationMenuItem>
-              <NavigationMenuLink href="#/facilitator">
-                Facilitator
+              <NavigationMenuLink
+                asChild
+                data-active={pathname.startsWith("/docs") ? true : undefined}
+              >
+                <Link to="/docs">Docs</Link>
+              </NavigationMenuLink>
+            </NavigationMenuItem>
+            <NavigationMenuItem>
+              <NavigationMenuLink
+                asChild
+                data-active={
+                  pathname.startsWith("/facilitator") ? true : undefined
+                }
+              >
+                <Link to="/facilitator">Facilitator</Link>
+              </NavigationMenuLink>
+            </NavigationMenuItem>
+            <NavigationMenuItem>
+              <NavigationMenuLink
+                asChild
+                data-active={
+                  pathname.startsWith("/ecosystem") ? true : undefined
+                }
+              >
+                <Link to="/ecosystem">Ecosystem</Link>
               </NavigationMenuLink>
             </NavigationMenuItem>
             {/* <NavigationMenuItem>
@@ -51,20 +85,7 @@ export function Navbar() {
                 <span className="inline-block">
                   <FaGithub className="h-4 w-4" />
                 </span>
-                Star
-              </NavigationMenuLink>
-            </NavigationMenuItem>
-            <NavigationMenuItem>
-              <NavigationMenuLink
-                href="#diagram"
-                onClick={(e) => {
-                  e.preventDefault();
-                  // Open the new primary domain for the demo
-                  window.open("https://demo.x402x.dev/", "_blank");
-                }}
-                className="inline-flex h-9 items-center justify-center rounded-md bg-primary text-primary-foreground px-4 py-2 text-sm font-medium  cursor-pointer"
-              >
-                Try the demo
+                Github
               </NavigationMenuLink>
             </NavigationMenuItem>
           </NavigationMenuList>

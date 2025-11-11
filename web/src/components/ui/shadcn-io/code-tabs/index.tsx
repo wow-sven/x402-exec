@@ -30,8 +30,8 @@ function CodeTabsContent({
   codes,
   lang = 'bash',
   themes = {
-    light: 'github-light',
-    dark: 'github-dark',
+    light: 'vitesse-light',
+    dark: 'vitesse-dark',
   },
   copyButton = true,
   onCopy,
@@ -63,7 +63,7 @@ function CodeTabsContent({
               light: themes.light,
               dark: themes.dark,
             },
-            defaultColor: resolvedTheme === 'dark' ? 'dark' : 'light',
+            // Let CSS variables control dark/light like home CodeBlock does
           });
 
           newHighlightedCodes[command] = highlighted;
@@ -111,10 +111,10 @@ function CodeTabsContent({
           <TabsContent
             data-slot="install-tabs-content"
             key={code}
-            className="w-full text-sm flex items-center p-4 overflow-auto"
+            className="w-full max-w-full text-sm flex items-center p-4 overflow-x-auto"
             value={code}
           >
-            <div className="w-full [&>pre]:m-0 [&>pre]:p-0 [&>pre]:bg-transparent! [&>pre]:border-none [&>pre]:text-[13px] [&>pre]:leading-relaxed [&_code]:text-[13px] [&_code]:leading-relaxed [&_code]:bg-transparent! [&_.shiki]:bg-transparent!">
+            <div className="w-full max-w-full min-w-0 [&>pre]:m-0 [&>pre]:p-0 [&>pre]:bg-transparent! [&>pre]:border-none [&>pre]:text-[13px] [&>pre]:leading-relaxed [&_code]:text-[13px] [&_code]:leading-relaxed [&_code]:bg-transparent! [&_.shiki]:bg-transparent! dark:[&_.shiki]:!text-[var(--shiki-dark)] dark:[&_.shiki]:!bg-[var(--shiki-dark-bg)] dark:[&_.shiki]:![font-style:var(--shiki-dark-font-style)] dark:[&_.shiki]:![font-weight:var(--shiki-dark-font-weight)] dark:[&_.shiki]:![text-decoration:var(--shiki-dark-text-decoration)] dark:[&_.shiki_span]:!text-[var(--shiki-dark)] dark:[&_.shiki_span]:![font-style:var(--shiki-dark-font-style)] dark:[&_.shiki_span]:![font-weight:var(--shiki-dark-font-weight)] dark:[&_.shiki_span]:![text-decoration:var(--shiki-dark-text-decoration)]">
               {highlightedCodes[code] !== rawCode ? (
                 <div dangerouslySetInnerHTML={{ __html: highlightedCodes[code] }} />
               ) : (
@@ -134,8 +134,8 @@ function CodeTabs({
   codes,
   lang = 'bash',
   themes = {
-    light: 'github-light',
-    dark: 'github-dark',
+    light: 'vitesse-light',
+    dark: 'vitesse-dark',
   },
   className,
   defaultValue,
@@ -156,7 +156,7 @@ function CodeTabs({
     <Tabs
       data-slot="install-tabs"
       className={cn(
-        'w-full gap-0 bg-muted/50 rounded-xl border overflow-hidden',
+        'w-full max-w-full gap-0 bg-muted/50 rounded-xl border overflow-hidden',
         className,
       )}
       {...tabsProps}

@@ -1,0 +1,92 @@
+---
+title: Facilitator — Middlewares
+description: Protect routes with x402x and settle via facilitator using Hono or Express.
+navGroup: Facilitator
+navOrder: 5
+status: beta
+---
+
+The middlewares generate PaymentRequirements (including settlement `extra`), verify the posted
+`X-PAYMENT`, and settle via the facilitator automatically.
+
+## Hono
+
+```hono.ts
+import { Hono } from "hono";
+import { paymentMiddleware } from "@x402x/hono";
+
+const app = new Hono();
+
+app.use(
+  "/api/*",
+  paymentMiddleware(
+    "0xRecipient...", // final recipient
+    {
+      price: "$0.10",
+      network: ["base-sepolia", "x-layer-testnet"],
+      // hook defaults to TransferHook; hookData defaults to "0x"
+      facilitatorFee: "auto", // query min fee from facilitator
+    },
+    { url: process.env.FACILITATOR_URL! },
+  ),
+);
+
+app.get("/api/premium", (c) => {
+  const ctx = c.get("x402"); // payer, amount, network, settlement
+  return c.json({ ok: true, payer: ctx?.payer });
+});
+```
+
+## Express
+
+```express.ts
+import express from "express";
+import { paymentMiddleware } from "@x402x/express";
+
+const app = express();
+
+app.use(
+  paymentMiddleware(
+    "0xRecipient...",
+    {
+      "/api/basic": { price: "$0.01", network: "base-sepolia" },
+      "POST /api/premium": {
+        price: "$0.10",
+        network: ["base-sepolia", "x-layer-testnet"],
+        facilitatorFee: "auto",
+      },
+    },
+    { url: process.env.FACILITATOR_URL! },
+  ),
+);
+
+app.get("/api/basic", (req, res) => {
+  const x = (req as any).x402; // payer, amount, network, settlement
+  res.json({ ok: true, payer: x?.payer });
+});
+```
+
+Notes:
+
+- The middleware adds x402 context: payer, amount, network, payment, and optional settlement fields
+- With `facilitatorFee: "auto"`, total price = business price + min facilitator fee (queried live)
+- If your client posts its own `paymentRequirements`, middleware will use it (keeps `salt` stable)
+
+import { RelatedLinks } from "@/components/docs/related-links";
+
+## Related Docs
+
+<RelatedLinks
+  items={[
+    {
+      title: "Facilitator README",
+      href: "https://github.com/nuwa-protocol/x402-exec/blob/main/facilitator/README.md",
+      description: "End‑to‑end setup and ops guidance.",
+    },
+    {
+      title: "Facilitator Developer Guide",
+      href: "https://github.com/nuwa-protocol/x402-exec/blob/main/contracts/docs/facilitator_guide.md",
+      description: "Language‑agnostic integration if you run your own.",
+    },
+  ]}
+/> 

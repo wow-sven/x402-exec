@@ -1,0 +1,98 @@
+---
+title: Writing Hooks
+description: How to author Hook contracts and when to use the built‑in TransferHook.
+navGroup: Hooks
+navOrder: 3
+status: stable
+---
+
+## Interface
+
+```solidity
+interface ISettlementHook {
+  function execute(
+    bytes32 contextKey,
+    address payer,
+    address token,
+    uint256 amount,
+    bytes calldata data
+  ) external returns (bytes memory);
+}
+```
+
+Rules:
+
+- Only the SettlementRouter may call your hook (use an `onlyHub` guard)
+- Consume the entire `amount` from the router (router must not retain funds)
+- Keep business logic deterministic; any revert reverts the whole settlement
+
+## Basic Template
+
+```solidity
+contract MyHook is ISettlementHook {
+  using SafeERC20 for IERC20;
+
+  address public immutable hub;
+  modifier onlyHub() { require(msg.sender == hub, "Only hub"); _; }
+  constructor(address _hub) { hub = _hub; }
+
+  function execute(
+    bytes32 /*contextKey*/,
+    address /*payer*/,
+    address token,
+    uint256 amount,
+    bytes calldata data
+  ) external onlyHub returns (bytes memory) {
+    address recipient = abi.decode(data, (address));
+    IERC20(token).safeTransferFrom(hub, recipient, amount);
+    return abi.encode(recipient);
+  }
+}
+```
+
+## Built‑in TransferHook
+
+- One per network; use for simple transfers with facilitator fee support
+- Address helper: `TransferHook.getAddress(network)`
+- Data encoder: `TransferHook.encode()` for simple transfer, or `encode([{recipient,bips}, ...])`
+  for revenue splits (bips out of 10000)
+
+```transfer-hook.ts
+import { TransferHook } from "@x402x/core";
+const hook = TransferHook.getAddress("base-sepolia");
+const hookData = TransferHook.encode([{ recipient: "0xAlice...", bips: 3000 }]);
+```
+
+## Examples
+
+See full contract examples under `contracts/examples/`:
+
+- RevenueSplitHook — split across multiple parties
+- NFTMintHook — mint to payer and distribute proceeds
+- RewardHook — merchant payment + reward token to payer
+
+More in: contracts/docs/hook_guide.md
+
+import { RelatedLinks } from "@/components/docs/related-links";
+
+## Related Docs
+
+<RelatedLinks
+  items={[
+    {
+      title: "Hook Development Guide",
+      href: "https://github.com/nuwa-protocol/x402-exec/blob/main/contracts/docs/hook_guide.md",
+      description: "Design patterns, templates, and best practices.",
+    },
+    {
+      title: "Built‑in Hooks",
+      href: "https://github.com/nuwa-protocol/x402-exec/blob/main/contracts/docs/builtin_hooks.md",
+      description: "TransferHook and usage, gas notes, and migration tips.",
+    },
+    {
+      title: "Security Guide",
+      href: "https://github.com/nuwa-protocol/x402-exec/blob/main/contracts/docs/security.md",
+      description: "Threat model, invariants, and secure hook authoring.",
+    },
+  ]}
+/> 

@@ -1,60 +1,53 @@
 import Footer from "@/components/site/footer";
 import Hero from "@/components/site/hero";
 import Navbar from "@/components/site/navbar";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { TriangleAlert } from "lucide-react";
-import { useEffect, useState } from "react";
 import DocsPage from "@/pages/docs";
+import EcosystemPage from "@/pages/ecosystem";
 import FacilitatorPage from "@/pages/facilitator";
+import { useEffect } from "react";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 
 function App() {
-  // extremely light-weight hash-based routing to avoid adding a router dep
-  const getRoute = () => {
-    const hash = (typeof window !== "undefined" ? window.location.hash : "").replace(
-      /^#\/?/,
-      "",
-    );
-    if (hash.startsWith("docs")) return "docs" as const;
-    if (hash.startsWith("facilitator")) return "facilitator" as const;
-    return "home" as const;
-  };
-
-  const [route, setRoute] = useState<"home" | "docs" | "facilitator">(getRoute());
-
-  useEffect(() => {
-    const onHashChange = () => setRoute(getRoute());
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
-  }, []);
+  const location = useLocation();
 
   // Basic client-side SEO: update document title based on route
   useEffect(() => {
-    const base = "x402X";
-    const title = route === "docs" ? `${base} • Docs` : route === "facilitator" ? `${base} • Facilitator` : `${base} • Atomic Pay-and-Execute`;
+    const base = "x402x";
+    const pathname = location.pathname.replace(/^\/+/, "");
+    const route = pathname.startsWith("docs")
+      ? "docs"
+      : pathname.startsWith("facilitator")
+        ? "facilitator"
+        : pathname.startsWith("ecosystem")
+          ? "ecosystem"
+          : "home";
+    const title =
+      route === "docs"
+        ? `${base} • Docs`
+        : route === "facilitator"
+          ? `${base} • Facilitator`
+          : route === "ecosystem"
+            ? `${base} • Ecosystem`
+            : `${base} - Turn any x402 payment into an on-chain action`;
     if (typeof document !== "undefined") {
       document.title = title;
     }
-  }, [route]);
+  }, [location.pathname]);
 
   return (
     <div className="flex min-h-screen flex-col">
       <Navbar />
       <main className="flex-1">
-        {/* Site-wide notice: experimental status */}
-        <div className="mx-auto max-w-6xl px-4 pt-4">
-          <Alert className="bg-yellow-50 border-yellow-200 text-yellow-900">
-            <TriangleAlert className="h-4 w-4" />
-            <AlertTitle>Experimental Project</AlertTitle>
-            <AlertDescription>
-              This project is experimental and not ready for production yet.
-              Please refer to our github for the latest progress or provide
-              feedbacks.
-            </AlertDescription>
-          </Alert>
-        </div>
-        {route === "home" ? <Hero /> : null}
-        {route === "docs" ? <DocsPage /> : null}
-        {route === "facilitator" ? <FacilitatorPage /> : null}
+        {/* Site-wide notice: production launch */}
+        <div className="mx-auto max-w-6xl px-4 pt-4"></div>
+        <Routes>
+          <Route path="/" element={<Hero />} />
+          <Route path="/docs" element={<DocsPage />} />
+          <Route path="/docs/:slug" element={<DocsPage />} />
+          <Route path="/facilitator" element={<FacilitatorPage />} />
+          <Route path="/ecosystem" element={<EcosystemPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </main>
       <Footer />
     </div>

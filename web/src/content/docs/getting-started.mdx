@@ -1,0 +1,73 @@
+---
+title: x402x Concepts
+description: What x402x is, why it matters, and how the programmable settlement model works.
+navGroup: Concepts
+navOrder: 1
+status: stable
+---
+
+import diagram from "./x402x-diagram.png";
+
+<img src={diagram} alt="x402x overview" className="max-w-full h-auto border-none" />
+
+x402x (short for x402‑exec) turns a payment into an atomic pay‑and‑execute. A user signs an EIP‑3009
+authorization; the facilitator submits it to the SettlementRouter, which verifies the payment and then
+executes your Hook (on‑chain business logic). This brings real atomicity to post‑payment actions
+like revenue split, NFT mint, or loyalty points, with a native facilitator‑fee mechanism.
+
+Key benefits:
+
+- Programmable settlement via Hooks; any business logic after payment
+- Atomicity; payment verification + execution in one transaction
+- Native facilitator fees; permissionless, transparent incentives
+- Backward‑compatible with existing x402; clients change only how the nonce is computed
+
+## Core Concepts
+
+- SettlementRouter: on‑chain hub that verifies the commitment, consumes the EIP‑3009 authorization,
+  accumulates facilitator fees, calls Hooks, and enforces the “no hub balance” invariant
+- Hook (ISettlementHook): contract that receives context + amount and executes your logic
+- Commitment‑as‑Nonce: cryptographic hash of all settlement parameters becomes the EIP‑3009 nonce,
+  preventing parameter tampering
+- PaymentRequirements.extra: carries settlement parameters (router, salt, payTo, fee, hook, hookData)
+
+## Flow At A Glance
+
+1) Server returns 402 with PaymentRequirements (including `extra` when using settlement)
+2) Client computes commitment and signs EIP‑3009 with nonce=commitment, to=SettlementRouter
+3) Facilitator calls `SettlementRouter.settleAndExecute(...)`
+4) Router verifies commitment, transfers tokens, deducts fee, calls Hook, emits events
+
+## x402 Compatibility
+
+If `extra.settlementRouter` is absent, the client performs a normal x402 transfer (random nonce,
+`to = payTo`). When present, the client uses the commitment as nonce and sets `to = settlementRouter`.
+
+import { RelatedLinks } from "@/components/docs/related-links";
+
+## Related Docs
+
+<RelatedLinks
+  items={[
+    {
+      title: "SettlementRouter API",
+      href: "https://github.com/nuwa-protocol/x402-exec/blob/main/contracts/docs/api.md",
+      description: "Contract interface and events for the settlement hub.",
+    },
+    {
+      title: "Built‑in Hooks",
+      href: "https://github.com/nuwa-protocol/x402-exec/blob/main/contracts/docs/builtin_hooks.md",
+      description: "Protocol‑level TransferHook details and usage.",
+    },
+    {
+      title: "x402 Protocol",
+      href: "https://github.com/coinbase/x402",
+      description: "Official x402 specification and reference packages.",
+    },
+    {
+      title: "EIP‑3009",
+      href: "https://eips.ethereum.org/EIPS/eip-3009",
+      description: "Transfer With Authorization standard used by x402/x402x.",
+    },
+  ]}
+/> 
