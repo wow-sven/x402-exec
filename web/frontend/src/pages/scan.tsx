@@ -109,8 +109,8 @@ function ScanPagination({
               }
             />
           </PaginationItem>
-          {pages.map((p, idx) => (
-            <PaginationItem key={`${p}-${idx}`}>
+          {pages.map((p) => (
+            <PaginationItem key={`${p}`}>
               {p === "ellipsis" ? (
                 <PaginationEllipsis />
               ) : (
@@ -288,14 +288,13 @@ export default function ScanPage() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 space-y-8">
       <header className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight">Scan</h1>
+        <h1 className="text-3xl font-bold tracking-tight">x402x Scan</h1>
         <p className="text-muted-foreground">
-          Overview of facilitator activity across Base and X Layer networks.
+          Overview of facilitator activity across all networks.
         </p>
       </header>
 
       <section className="space-y-4">
-        <h2 className="text-xl font-semibold tracking-tight">Statistics</h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Card>
             <CardHeader>
