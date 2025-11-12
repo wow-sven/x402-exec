@@ -62,7 +62,7 @@ export async function signAuthorization(
       version: settlement.networkConfig.usdc.version,
       chainId: settlement.networkConfig.chainId,
       verifyingContract: getAddress(settlement.token),
-    };
+    }; 
 
     // Build EIP-712 message
     // The "to" address is the SettlementRouter (not the final recipient)
@@ -77,6 +77,15 @@ export async function signAuthorization(
       validBefore: BigInt(settlement.validBefore),
       nonce: settlement.commitment, // Use commitment as nonce
     };
+
+    console.log("[x402x/client] EIP-712 Message for signing:", {
+      from: message.from,
+      to: message.to,
+      value: message.value.toString(),
+      validAfter: message.validAfter.toString(),
+      validBefore: message.validBefore.toString(),
+      nonce: message.nonce,
+    });
 
     // Sign typed data
     const signature = await signTypedData(wallet, {
