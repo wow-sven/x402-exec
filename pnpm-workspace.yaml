@@ -14,3 +14,7 @@ packages:
 
   # Website Project
   - 'web/frontend'
+
+  # Applications Project
+  - 'apps/swap'
+  - 'apps/bridge'
