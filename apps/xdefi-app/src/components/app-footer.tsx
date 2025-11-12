@@ -74,6 +74,16 @@ export default function Footer() {
                                 Nuwa AI
                             </a>
                             .
+                            <br />
+                            Powered by {' '}
+                            <a
+                                href="https://x.com/NuwaDev"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="underline hover:text-foreground"
+                            >
+                                x402x Protocol
+                            </a>
                         </span>
                     </div>
 

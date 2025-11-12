@@ -1,14 +1,20 @@
 import { PageHeader, PageHeaderHeading } from "@/components/page-header";
-import { CryptoSwapComponent } from "@/components/ui/crypto-swap";
+import Seo from "@/components/Seo";
+import { BridgeComponent } from "@/components/ui/crypto-swap";
 
 export default function BridgePage() {
   return (
     <>
       <PageHeader>
-        <PageHeaderHeading>Bridge</PageHeaderHeading>
+        <PageHeaderHeading className="sr-only">Bridge</PageHeaderHeading>
       </PageHeader>
-      <CryptoSwapComponent mode="bridge" />
+      <Seo
+        title="Bridge"
+        description="Move assets seamlessly across networks."
+        path="/bridge"
+        keywords={["bridge", "cross-chain", "l2", "crypto", "xdefi"]}
+      />
+      <BridgeComponent />
     </>
   );
 }
-

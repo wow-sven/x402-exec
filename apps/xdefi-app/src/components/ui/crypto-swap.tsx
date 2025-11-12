@@ -144,7 +144,9 @@ const defaultNetworks: Network[] = [
 
 type Mode = 'swap' | 'bridge';
 
-export function CryptoSwapComponent({ mode = 'swap', networks = defaultNetworks }: { mode?: Mode; networks?: Network[] }) {
+// Internal base component used by the SwapComponent and BridgeComponent wrappers.
+// Consumers should import/use the specific components instead of a generic "mode" prop.
+function CryptoSwapBase({ mode, networks = defaultNetworks }: { mode: Mode; networks?: Network[] }) {
   const initialFromNetwork = networks[0];
   const initialToNetwork = mode === 'bridge' ? (networks[1] ?? networks[0]) : networks[0];
   const [swapState, setSwapState] = useState<SwapState>({
@@ -663,4 +665,14 @@ export function CryptoSwapComponent({ mode = 'swap', networks = defaultNetworks 
       </motion.div>
     </div>
   );
+}
+
+// Public: swap-only component
+export function SwapComponent({ networks = defaultNetworks }: { networks?: Network[] }) {
+  return <CryptoSwapBase mode="swap" networks={networks} />;
+}
+
+// Public: bridge-only component
+export function BridgeComponent({ networks = defaultNetworks }: { networks?: Network[] }) {
+  return <CryptoSwapBase mode="bridge" networks={networks} />;
 }
