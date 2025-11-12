@@ -4,6 +4,7 @@ import Navbar from "@/components/site/navbar";
 import DocsPage from "@/pages/docs";
 import EcosystemPage from "@/pages/ecosystem";
 import FacilitatorPage from "@/pages/facilitator";
+import ScanPage from "@/pages/scan";
 import { useEffect } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 
@@ -18,9 +19,11 @@ function App() {
       ? "docs"
       : pathname.startsWith("facilitator")
         ? "facilitator"
-        : pathname.startsWith("ecosystem")
-          ? "ecosystem"
-          : "home";
+          : pathname.startsWith("ecosystem")
+            ? "ecosystem"
+            : pathname.startsWith("scan")
+              ? "scan"
+              : "home";
     const title =
       route === "docs"
         ? `${base} • Docs`
@@ -28,7 +31,9 @@ function App() {
           ? `${base} • Facilitator`
           : route === "ecosystem"
             ? `${base} • Ecosystem`
-            : `${base} - Turn any x402 payment into an on-chain action`;
+            : route === "scan"
+              ? `${base} • Scan`
+              : `${base} - Turn any x402 payment into an on-chain action`;
     if (typeof document !== "undefined") {
       document.title = title;
     }
@@ -46,6 +51,7 @@ function App() {
           <Route path="/docs/:slug" element={<DocsPage />} />
           <Route path="/facilitator" element={<FacilitatorPage />} />
           <Route path="/ecosystem" element={<EcosystemPage />} />
+          <Route path="/scan" element={<ScanPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

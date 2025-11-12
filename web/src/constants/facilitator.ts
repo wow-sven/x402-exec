@@ -199,15 +199,17 @@ export type PaymentToken = {
 };
 
 export type SupportedNetwork = {
-	name: string;
-	network: string;
-	chainId: number;
-	status: "Mainnet" | "Testnet";
-	settlementRouter: string;
-	explorerUrl: string;
-	// Optional logo URL to display for this network on the Facilitator page
-	logoUrl?: string;
-	paymentTokens: PaymentToken[];
+  name: string;
+  network: string;
+  chainId: number;
+  status: "Mainnet" | "Testnet";
+  settlementRouter: string;
+  explorerUrl: string;
+  // Optional base URL to view transactions for this network (e.g., https://basescan.org/tx/)
+  txExplorerBaseUrl?: string;
+  // Optional logo URL to display for this network on the Facilitator page
+  logoUrl?: string;
+  paymentTokens: PaymentToken[];
 };
 
 type SupportedNetworkData = Omit<SupportedNetwork, "paymentTokens">;

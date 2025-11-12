@@ -49,6 +49,14 @@ export function Navbar() {
             <NavigationMenuItem>
               <NavigationMenuLink
                 asChild
+                data-active={pathname.startsWith("/scan") ? true : undefined}
+              >
+                <Link to="/scan">Scan</Link>
+              </NavigationMenuLink>
+            </NavigationMenuItem>
+            <NavigationMenuItem>
+              <NavigationMenuLink
+                asChild
                 data-active={
                   pathname.startsWith("/facilitator") ? true : undefined
                 }
