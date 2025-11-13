@@ -16,6 +16,4 @@ packages:
   - 'web/frontend'
 
   # Applications Project
-  - 'apps/swap'
-  - 'apps/bridge'
   - 'apps/xdefi-app'
