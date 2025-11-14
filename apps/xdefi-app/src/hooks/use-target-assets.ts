@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { SUPPORTED_NETWORKS, SUPPORTED_PAYMENT_TOKENS } from '@/constants/networks';
+import { okxGetTokens } from '@/lib/okx';
 
 // Local shapes aligned to crypto-swap component
 export type TargetToken = {
@@ -9,6 +10,7 @@ export type TargetToken = {
   price: number;
   balance: string;
   change24h: number;
+  logoUrl?: string;
 };
 
 export type TargetNetwork = {
@@ -28,11 +30,8 @@ export function useTargetAssets({ mode, fromNetworkId, networkMode }: UseTargetA
   const [error, setError] = useState<string | null>(null);
   const [networks, setNetworks] = useState<TargetNetwork[]>(() => []);
 
-  // Build a mock list deterministically from SDK data.
-  // - Filter by networkMode
-  // - For 'swap': only the from network is valid as the target network
-  // - For 'bridge': any network in the same mode except the from network
-  const computeMock = useMemo(() => {
+  // Compute target networks (without tokens). Tokens will be populated from OKX.
+  const targets = useMemo(() => {
     const candidates = SUPPORTED_NETWORKS.filter((n) =>
       networkMode === 'mainnet' ? n.status === 'Mainnet' : n.status === 'Testnet',
     );
@@ -43,43 +42,76 @@ export function useTargetAssets({ mode, fromNetworkId, networkMode }: UseTargetA
       return candidates.filter((n) => n.network !== fromNetworkId);
     })();
 
-    const list: TargetNetwork[] = pickList.map((n) => {
-      const tokenEntries = SUPPORTED_PAYMENT_TOKENS[n.network] ?? [];
-      const tokens: TargetToken[] = tokenEntries.map((t) => ({
-        symbol: t.symbol,
-        name: t.label ?? t.symbol,
-        address: t.address,
-        price: t.symbol.toUpperCase() === 'USDC' ? 1 : 1,
-        balance: '0',
-        change24h: 0,
-      }));
-
-      // Remove the word "Mainnet" from display name for consistency
-      const name = n.status === 'Mainnet' ? n.name.replace(/\s*Mainnet\b/i, '') : n.name;
-
-      return { id: n.network, name, tokens };
-    });
-    return list;
+    return pickList.map((n) => ({
+      key: n.network,
+      name: n.status === 'Mainnet' ? n.name.replace(/\s*Mainnet\b/i, '') : n.name,
+      chainId: n.chainId,
+    }));
   }, [mode, fromNetworkId, networkMode]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    // Update synchronously so UI can switch both sides in one render.
-    setNetworks(computeMock);
-    // Keep a small delay to emulate network latency for the loading flag only.
-    const t = setTimeout(() => {
-      if (!cancelled) setLoading(false);
-    }, 100);
+
+    async function run() {
+      // Fetch tokens per target network via OKX. Fall back to SDK tokens if empty/error.
+      const results = await Promise.all(
+        targets.map(async (t) => {
+          try {
+            const okxTokens = await okxGetTokens({ chainId: t.chainId, limit: 200 });
+            const mapped: TargetToken[] = (okxTokens ?? [])
+              .slice(0, 200)
+              .map((tok) => ({
+                symbol: tok.symbol,
+                name: tok.name ?? tok.symbol,
+                address: tok.address,
+                price: 1, // Pricing is out of scope here
+                balance: '0',
+                change24h: 0,
+                logoUrl: tok.logoURI,
+              }));
+
+            // If OKX returned nothing, fall back to our minimal supported token list (USDC)
+            const fallbackList = (SUPPORTED_PAYMENT_TOKENS[t.key] ?? []).map((x) => ({
+              symbol: x.symbol,
+              name: x.label ?? x.symbol,
+              address: x.address,
+              price: 1,
+              balance: '0',
+              change24h: 0,
+            }));
+
+            const tokens: TargetToken[] = mapped.length > 0 ? mapped : fallbackList;
+            return { id: t.key, name: t.name, tokens } as TargetNetwork;
+          } catch (e) {
+            // On error, use fallback tokens to keep the UI functional
+            const fallbackList = (SUPPORTED_PAYMENT_TOKENS[t.key] ?? []).map((x) => ({
+              symbol: x.symbol,
+              name: x.label ?? x.symbol,
+              address: x.address,
+              price: 1,
+              balance: '0',
+              change24h: 0,
+            }));
+            return { id: t.key, name: t.name, tokens: fallbackList } as TargetNetwork;
+          }
+        }),
+      );
+
+      if (cancelled) return;
+      setNetworks(results);
+      setLoading(false);
+    }
+
+    run();
     return () => {
       cancelled = true;
-      clearTimeout(t);
     };
-  }, [computeMock]);
+  }, [targets]);
 
   const refresh = () => {
-    // No-op for mock; re-run effect by mutating dependencies if needed
+    // Trigger effect by changing dependency identity
     setLoading(true);
     setTimeout(() => setLoading(false), 50);
   };

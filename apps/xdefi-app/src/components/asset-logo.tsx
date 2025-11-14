@@ -7,6 +7,9 @@ type Props = {
   size?: number; // square size in px
   className?: string;
   title?: string;
+  // Optional absolute URL for a token logo (e.g., OKX tokenLogoUrl). If provided,
+  // we try this first and fall back to local static assets if it fails.
+  src?: string;
 };
 
 // Simple logo resolver that maps keys to files under /public/logos
@@ -16,7 +19,7 @@ type Props = {
 //
 // Note: The actual files can be added later; this component will gracefully
 //       fallback to an initial-based badge when the image is missing.
-export function AssetLogo({ kind, id, size = 20, className, title }: Props) {
+export function AssetLogo({ kind, id, size = 20, className, title, src }: Props) {
   // Build a base path without extension and try svg -> png.
   const base = useMemo(() => {
     // Respect Vite's base path so assets resolve in GH Pages or subpath deployments
@@ -27,6 +30,12 @@ export function AssetLogo({ kind, id, size = 20, className, title }: Props) {
 
   // Try .svg first, then .png if it fails. If both fail, fall back to gradient.
   const [ext, setExt] = useState<"svg" | "png" | null>("svg");
+  // When a remote `src` is supplied, try it first; on error, fall back to local assets
+  const [useRemote, setUseRemote] = useState<boolean>(!!src);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: <>
+  useEffect(() => {
+    setUseRemote(!!src);
+  }, [src]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: <>
   useEffect(() => {
     // Reset the attempt chain whenever target changes
@@ -50,17 +59,30 @@ export function AssetLogo({ kind, id, size = 20, className, title }: Props) {
       title={title || id}
       style={{ width: size, height: size }}
     >
-      {ext && (
+      {useRemote ? (
         <AvatarImage
-          src={`${base}.${ext}`}
+          src={src}
           alt={title || id}
-          // Radix Avatar exposes loading status; use it to drive fallback to .png when .svg fails
+          // If remote fails, switch to local asset chain (svg -> png -> gradient)
           onLoadingStatusChange={(status) => {
             if (status === "error") {
-              setExt((prev) => (prev === "svg" ? "png" : null));
+              setUseRemote(false);
+              setExt("svg");
             }
           }}
         />
+      ) : (
+        ext && (
+          <AvatarImage
+            src={`${base}.${ext}`}
+            alt={title || id}
+            onLoadingStatusChange={(status) => {
+              if (status === "error") {
+                setExt((prev) => (prev === "svg" ? "png" : null));
+              }
+            }}
+          />
+        )
       )}
       <AvatarFallback aria-label={title || id}>
         <span

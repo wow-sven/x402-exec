@@ -59,6 +59,8 @@ interface Token {
   name: string;
   // icon is unused now; we render with <AssetLogo/>
   icon?: string;
+  // Optional remote token logo URL (e.g., from OKX)
+  logoUrl?: string;
   balance: string;
   price: number;
   change24h: number;
@@ -424,6 +426,7 @@ function CryptoSwapBase({
                     kind="token"
                     id={swapState.fromToken.symbol}
                     size={36}
+                    src={swapState.fromToken.logoUrl}
                   />
                   <div className="flex flex-col leading-tight items-start justify-start">
                     <span className="font-semibold">
@@ -503,6 +506,7 @@ function CryptoSwapBase({
                     kind="token"
                     id={swapState.toToken.symbol}
                     size={36}
+                    src={swapState.toToken.logoUrl}
                   />
                   <div className="flex flex-col leading-tight items-start justify-start">
                     <span className="font-semibold">
@@ -689,7 +693,7 @@ function CryptoSwapBase({
                       whileTap={{ scale: 0.98 }}
                       onClick={() => handleTokenSelect(token)}
                     >
-                      <AssetLogo kind="token" id={token.symbol} size={36} />
+                      <AssetLogo kind="token" id={token.symbol} size={36} src={(token as any).logoUrl} />
                       <div className="flex-1 text-left">
                         <div className="font-semibold">{token.symbol}</div>
                         <div className="text-sm text-muted-foreground">
