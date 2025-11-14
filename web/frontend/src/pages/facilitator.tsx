@@ -20,12 +20,14 @@ import {
   ISSUE_SUBMIT_URL,
   SUPPORTED_NETWORKS,
 } from "@/constants/facilitator";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, Play } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 export default function FacilitatorPage() {
   const [copied, setCopied] = useState(false);
   const resetCopyRef = useRef<number | null>(null);
+  const navigate = useNavigate();
 
   const handleCopy = useCallback(async () => {
     if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
@@ -43,6 +45,10 @@ export default function FacilitatorPage() {
       setCopied(false);
     }
   }, []);
+
+  const handleTryEndpoint = useCallback(() => {
+    navigate("/debug");
+  }, [navigate]);
 
   useEffect(() => {
     return () => {
@@ -194,8 +200,14 @@ export default function FacilitatorPage() {
       <Separator className="my-2" />
 
       <section className="space-y-3">
-        <div className="flex items-center gap-2 text-xl font-semibold">
-          API Endpoints
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-xl font-semibold">API Endpoints</h2>
+          <Button
+            variant="ghost"
+            onClick={() => navigate("/debug")}
+          >
+            Debug Page
+          </Button>
         </div>
         <p className="text-sm text-muted-foreground">
           Facilitator API endpoints.
@@ -241,6 +253,16 @@ export default function FacilitatorPage() {
                       window.open(url, "_blank", "noopener,noreferrer");
                     }}
                   >
+                    Try endpoint
+                  </Button>
+                ) : null}
+                {endpoint.method === "POST" ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleTryEndpoint}
+                  >
+                    <Play className="mr-2 h-3 w-3" />
                     Try endpoint
                   </Button>
                 ) : null}

@@ -1,6 +1,7 @@
 import Footer from "@/components/site/footer";
 import Hero from "@/components/site/hero";
 import Navbar from "@/components/site/navbar";
+import DebugPage from "@/pages/debug";
 import DocsPage from "@/pages/docs";
 import EcosystemPage from "@/pages/ecosystem";
 import FacilitatorPage from "@/pages/facilitator";
@@ -23,7 +24,9 @@ function App() {
             ? "ecosystem"
             : pathname.startsWith("scan")
               ? "scan"
-              : "home";
+              : pathname.startsWith("debug")
+                ? "debug"
+                : "home";
     const title =
       route === "docs"
         ? `${base} • Docs`
@@ -33,7 +36,9 @@ function App() {
             ? `${base} • Ecosystem`
             : route === "scan"
               ? `${base} • Scan`
-              : `${base} - Turn any x402 payment into an on-chain action`;
+              : route === "debug"
+                ? `${base} • Debug`
+                : `${base} - Turn any x402 payment into an on-chain action`;
     if (typeof document !== "undefined") {
       document.title = title;
     }
@@ -52,6 +57,7 @@ function App() {
           <Route path="/facilitator" element={<FacilitatorPage />} />
           <Route path="/ecosystem" element={<EcosystemPage />} />
           <Route path="/scan" element={<ScanPage />} />
+          <Route path="/debug" element={<DebugPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
