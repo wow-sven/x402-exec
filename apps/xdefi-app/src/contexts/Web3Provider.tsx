@@ -1,21 +1,46 @@
-import { PropsWithChildren, useMemo } from 'react';
-import { WagmiProvider } from 'wagmi';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AppKitProvider } from '@reown/appkit/react';
-import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
-import { base, baseSepolia, xLayer, xLayerTestnet } from '@reown/appkit/networks';
+import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
+import { base, baseSepolia, defineChain, xLayer } from "@reown/appkit/networks";
+import { AppKitProvider } from "@reown/appkit/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { type PropsWithChildren, useMemo } from "react";
+import { WagmiProvider } from "wagmi";
 
 // Initialize AppKit + Wagmi adapter
-const appKitProjectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined;
+const appKitProjectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as
+  | string
+  | undefined;
 if (!appKitProjectId) {
   // eslint-disable-next-line no-console
-  console.warn('Missing VITE_WALLETCONNECT_PROJECT_ID. Wallet connect will not work until it is set.');
+  console.warn(
+    "Missing VITE_WALLETCONNECT_PROJECT_ID. Wallet connect will not work until it is set.",
+  );
 }
 
-const appNetworks = [base, baseSepolia, xLayer, xLayerTestnet] as unknown as [any, ...any[]];
+const xLayerTestnet = defineChain({
+  id: 1952,
+  caipNetworkId: "eip155:1952",
+  chainNamespace: "eip155",
+  name: "X Layer Testnet",
+  nativeCurrency: {
+    decimals: 18,
+    name: "OKB",
+    symbol: "OKB",
+  },
+  blockExplorers: {
+    default: { name: "OKLink", url: "https://www.oklink.com/xlayer-test" },
+  },
+  rpcUrls: {
+    default: { http: ["https://testrpc.xlayer.tech/terigon"] },
+  },
+});
+
+const appNetworks = [base, baseSepolia, xLayer, xLayerTestnet] as unknown as [
+  any,
+  ...any[],
+];
 const wagmiAdapter = new WagmiAdapter({
   networks: appNetworks,
-  projectId: appKitProjectId ?? 'demo',
+  projectId: appKitProjectId ?? "demo",
 });
 
 const queryClient = new QueryClient();
@@ -25,15 +50,20 @@ export function Web3Provider({ children }: PropsWithChildren) {
   return (
     <WagmiProvider config={wagmiAdapter.wagmiConfig}>
       <AppKitProvider
-        projectId={appKitProjectId ?? 'demo'}
+        projectId={appKitProjectId ?? "demo"}
         adapters={[wagmiAdapter] as any}
         networks={appNetworks as any}
         defaultNetwork={base as any}
         metadata={{
-          name: 'xdefi.app',
-          description: 'xdefi.app — Swap & Bridge',
-          url: 'https://xdefi.app',
-          icons: ['https://avatars.githubusercontent.com/u/13698671?s=200&v=4'],
+          name: "xdefi.app",
+          description: "xdefi.app — Swap & Bridge",
+          url: "https://xdefi.app",
+          icons: ["https://avatars.githubusercontent.com/u/13698671?s=200&v=4"],
+        }}
+        features={{
+          analytics: false,
+          emailShowWallets: false,
+          swaps: false,
         }}
       >
         <QueryClientProvider client={qc}>{children}</QueryClientProvider>

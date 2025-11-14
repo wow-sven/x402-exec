@@ -1,12 +1,13 @@
-import { useNetworkMode } from "@/contexts/NetworkModeContext";
-import { cn } from "@/lib/utils";
-import { motion } from "framer-motion";
-import { NavLink } from "react-router-dom";
 // AppKit provides the wallet connect button UI
 // Note: packages will be added to the project; until then TS may show missing types
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
+
+import { useNetworkMode } from "@/contexts/NetworkModeContext";
+import { cn } from "@/lib/utils";
 import { AppKitButton } from "@reown/appkit/react";
+import { motion } from "framer-motion";
+import { NavLink } from "react-router-dom";
 
 // Minimal floating nav using the visual style from simple-floating-nav.tsx
 // Fixed, centered, and floating at the top. Contains Swap, Bridge, FAQ links.
@@ -25,7 +26,7 @@ export function AppNav() {
         {/* Connect Wallet button (AppKit) */}
         <div className="[&>*]:!m-0">
           {/* AppKit renders its own styled button */}
-          <AppKitButton />
+          <AppKitButton balance="hide" />
         </div>
       </div>
     </nav>
