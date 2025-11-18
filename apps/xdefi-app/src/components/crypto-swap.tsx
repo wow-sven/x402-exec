@@ -13,7 +13,7 @@ import {
   Zap,
 } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
-import { formatUnits, parseUnits } from "viem";
+// no direct viem parsing here; handled inside hooks
 import { useAccount, useBalance } from "wagmi";
 // Wallet connection guard: use wagmi account state + AppKit modal
 // Import the shared modal instance to open on demand without using the hook
@@ -21,11 +21,14 @@ import { useAccount, useBalance } from "wagmi";
 // @ts-ignore
 import AssetLogo from "@/components/asset-logo";
 import {
+  NATIVE_TOKEN_ADDRESS,
   SUPPORTED_NETWORKS,
   SUPPORTED_PAYMENT_TOKENS,
 } from "@/constants/networks";
+import { useSwapQuoteExactIn } from "@/hooks/use-swap-quote";
 import { useTargetAssets } from "@/hooks/use-target-assets";
-import { okxGetQuote, okxGetTokenPrice } from "@/lib/okx";
+// Use hooks for pricing and quotes; avoid calling OKX lib directly here
+import { useTokenPrice } from "@/hooks/use-token-price";
 import { cn } from "@/lib/utils";
 
 // Hook for click outside functionality
@@ -139,7 +142,16 @@ function CryptoSwapBase({
     fromNetwork: initialFromNetwork,
     toNetwork: initialFromNetwork, // temp init, will update once hook resolves
     fromToken: initialFromNetwork.tokens[0],
-    toToken: initialFromNetwork.tokens[0],
+    // Default to the OKX-native address; metadata will be enriched when token list is fetched
+    toToken: {
+      symbol: "Native",
+      name: "Native",
+      balance: "0",
+      price: 1,
+      change24h: 0,
+      address: NATIVE_TOKEN_ADDRESS,
+      decimals: 18,
+    },
     fromAmount: "",
     toAmount: "",
     slippage: 0.5,
@@ -147,10 +159,21 @@ function CryptoSwapBase({
     status: "idle",
   });
 
+  // Modal/UI state that influences hooks below
+  const [showTokenSelector, setShowTokenSelector] = useState<
+    "from" | "to" | null
+  >(null);
+  const [selectorNetwork, setSelectorNetwork] = useState<Network | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [tokenSearch, setTokenSearch] = useState("");
+  const [hasFetchedToTokens, setHasFetchedToTokens] = useState(false);
+
   // Load target assets based on current selection
   const { networks: toNetworks, loading: toLoading } = useTargetAssets({
     mode,
     fromNetworkId: swapState.fromNetwork?.id,
+    enabled: showTokenSelector === "to",
+    excludeAddress: swapState.fromToken?.address,
   });
 
   // Initialize or reconcile the From side when the available from-networks list changes
@@ -171,9 +194,8 @@ function CryptoSwapBase({
     });
   }, [fromNetworks]);
 
-  // Initialize or reconcile the To side whenever its candidate list changes
-  // Always adopt the latest token list for the selected "to" network so the UI is populated on first load.
-  // Preserve the previously selected token if it exists in the new list; otherwise default to the first token.
+  // Initialize or reconcile the To side whenever its candidate list changes (when enabled)
+  // Preserve the previously selected token if it exists in the new list; otherwise default to the first token (native).
   useEffect(() => {
     const nextTo = toNetworks?.[0];
     if (!nextTo) return;
@@ -191,16 +213,13 @@ function CryptoSwapBase({
     });
   }, [toNetworks]);
 
-  const [showTokenSelector, setShowTokenSelector] = useState<
-    "from" | "to" | null
-  >(null);
-  const [selectorNetwork, setSelectorNetwork] = useState<Network | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
-  const [tokenSearch, setTokenSearch] = useState("");
-  // Track which side the user is actively editing to choose exactIn/exactOut
-  // - 'from': user types the input amount -> quote exactIn and fill toAmount
-  // - 'to':   user types the output amount -> quote exactOut and fill fromAmount
-  const [amountSide, setAmountSide] = useState<"from" | "to">("from");
+  // Keep toNetwork aligned to fromNetwork in swap mode
+  useEffect(() => {
+    if (mode !== "swap") return;
+    setSwapState((prev) => ({ ...prev, toNetwork: prev.fromNetwork }));
+  }, [mode, swapState.fromNetwork?.id]);
+
+  // Amount editing is restricted to the 'from' side; 'to' is always derived.
   // no-op swap animation; we no longer flip from/to in UI
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   const [isHovering, setIsHovering] = useState(false);
@@ -267,198 +286,58 @@ function CryptoSwapBase({
   }
 
   // Price loading state for UI feedback when fetching real-time quotes
-  const [fromPriceLoading, setFromPriceLoading] = useState(false);
-  const [toPriceLoading, setToPriceLoading] = useState(false);
-  const [quoteLoading, setQuoteLoading] = useState(false);
-  const [lastQuoteOut, setLastQuoteOut] = useState<string | null>(null);
-  const [lastQuoteMeta, setLastQuoteMeta] = useState<{
-    tradeFeeUSD?: string;
-    priceImpactPercent?: string;
-  } | null>(null);
+  // Prices via hook
+  const { price: fromLivePrice, loading: fromPriceLoading } = useTokenPrice({
+    chainId: fromChainId,
+    tokenAddress: swapState.fromToken?.address,
+  });
+  const { price: toLivePrice, loading: toPriceLoading } = useTokenPrice({
+    chainId: toChainId,
+    tokenAddress: swapState.toToken?.address,
+  });
 
-  // Fetch real-time price for the selected From token
+  // Sync from token price into swap state when hook updates
   useEffect(() => {
-    let cancelled = false;
-    const tokenAddr = swapState.fromToken?.address;
-    if (!fromChainId || !tokenAddr) return;
-    setFromPriceLoading(true);
-    (async () => {
-      try {
-        const result = await okxGetTokenPrice({
-          chainId: fromChainId,
-          tokenAddress: tokenAddr,
-        });
-        if (cancelled) return;
-        setSwapState((prev) => ({
-          ...prev,
-          fromToken: {
-            ...prev.fromToken,
-            price:
-              result && result.price > 0 ? result.price : prev.fromToken.price,
-          },
-        }));
-      } finally {
-        if (!cancelled) setFromPriceLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [fromChainId, swapState.fromToken?.address]);
-
-  // Fetch real-time price for the selected To token
-  useEffect(() => {
-    let cancelled = false;
-    const tokenAddr = swapState.toToken?.address;
-    if (!toChainId || !tokenAddr) return;
-    setToPriceLoading(true);
-    (async () => {
-      try {
-        const result = await okxGetTokenPrice({
-          chainId: toChainId,
-          tokenAddress: tokenAddr,
-        });
-        if (cancelled) return;
-        setSwapState((prev) => ({
-          ...prev,
-          toToken: {
-            ...prev.toToken,
-            price:
-              result && result.price > 0 ? result.price : prev.toToken.price,
-          },
-        }));
-      } finally {
-        if (!cancelled) setToPriceLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [toChainId, swapState.toToken?.address]);
-
-  // Fetch live swap quote for the entered amount and selected tokens.
-  // Supports both directions:
-  // - amountSide === 'from' -> exactIn (compute toAmount)
-  // - amountSide === 'to'   -> exactOut (compute fromAmount)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: <>
-  useEffect(() => {
-    let cancelled = false;
-    const fromAddr = swapState.fromToken?.address;
-    const toAddr = swapState.toToken?.address;
-    if (!fromChainId || !toChainId || !fromAddr || !toAddr) return;
-
-    const activeAmt = (amountSide === "from"
-      ? swapState.fromAmount
-      : swapState.toAmount
-    )?.trim();
-
-    // Reset counterpart when active input is invalid/empty
-    if (!activeAmt || isNaN(Number(activeAmt)) || Number(activeAmt) <= 0) {
-      setSwapState((prev) => (
-        amountSide === "from" ? { ...prev, toAmount: "" } : { ...prev, fromAmount: "" }
-      ));
-      return;
+    if (fromLivePrice && fromLivePrice > 0) {
+      setSwapState((prev) => ({
+        ...prev,
+        fromToken: { ...prev.fromToken, price: fromLivePrice },
+      }));
     }
+  }, [fromLivePrice]);
 
-    setLastQuoteOut(null);
-    setLastQuoteMeta(null);
-    setQuoteLoading(true);
-    (async () => {
-      try {
-        // Parse raw amount using the correct token decimals for the active side
-        const activeDecimals =
-          amountSide === "from"
-            ? (swapState.fromToken?.decimals ?? 18)
-            : (swapState.toToken?.decimals ?? 18);
-        let amountRaw = "0";
-        try {
-          amountRaw = parseUnits(activeAmt!, activeDecimals).toString();
-        } catch {
-          amountRaw = "0";
-        }
+  // Sync to token price into swap state when hook updates
+  useEffect(() => {
+    if (toLivePrice && toLivePrice > 0) {
+      setSwapState((prev) => ({
+        ...prev,
+        toToken: { ...prev.toToken, price: toLivePrice },
+      }));
+    }
+  }, [toLivePrice]);
 
-        const q = await okxGetQuote({
-          chainId: fromChainId,
-          tokenIn: fromAddr,
-          tokenOut: toAddr,
-          amountRaw,
-          swapMode: amountSide === "from" ? "exactIn" : "exactOut",
-          // Optional knobs available:
-          // priceImpactProtectionPercent: '90',
-          // feePercent: '0',
-          // directRoute: false,
-          slippage: swapState.slippage,
-          userAddress: address,
-        });
-        if (cancelled) return;
-
-        if (q) {
-          if (amountSide === "from") {
-            // We need to fill toAmount from rawAmountOut
-            const qToDecRaw = (q as any)?.data?.toToken?.decimal;
-            const qToDecimals =
-              typeof qToDecRaw === "string" ? Number.parseInt(qToDecRaw, 10) : undefined;
-            const toDecimals = Number.isFinite(qToDecimals as number)
-              ? (qToDecimals as number)
-              : (swapState.toToken?.decimals ?? 18);
-            const rawOut = q.rawAmountOut || q.amountOut || "0";
-            let display = "0";
-            try {
-              display = formatUnits(BigInt(rawOut), toDecimals);
-            } catch { }
-            const [i, d = ""] = display.split(".");
-            const t = d.replace(/0+$/, "").slice(0, 6);
-            display = t ? `${i}.${t}` : i;
-            setLastQuoteOut(display);
-            setLastQuoteMeta({
-              tradeFeeUSD: q.tradeFeeUSD,
-              priceImpactPercent: q.priceImpactPercent,
-            });
-            setSwapState((prev) => ({ ...prev, toAmount: display }));
-          } else {
-            // amountSide === 'to' -> fill fromAmount from rawAmountIn
-            const qFromDecRaw = (q as any)?.data?.fromToken?.decimal;
-            const qFromDecimals =
-              typeof qFromDecRaw === "string" ? Number.parseInt(qFromDecRaw, 10) : undefined;
-            const fromDecimals = Number.isFinite(qFromDecimals as number)
-              ? (qFromDecimals as number)
-              : (swapState.fromToken?.decimals ?? 18);
-            const rawIn = q.rawAmountIn || "0";
-            let display = "0";
-            try {
-              display = formatUnits(BigInt(rawIn), fromDecimals);
-            } catch { }
-            const [i, d = ""] = display.split(".");
-            const t = d.replace(/0+$/, "").slice(0, 6);
-            display = t ? `${i}.${t}` : i;
-            setLastQuoteOut(display);
-            setLastQuoteMeta({
-              tradeFeeUSD: q.tradeFeeUSD,
-              priceImpactPercent: q.priceImpactPercent,
-            });
-            setSwapState((prev) => ({ ...prev, fromAmount: display }));
-          }
-        }
-      } catch {
-        // Silently ignore; the price-ratio fallback effect will fill an estimate
-      } finally {
-        if (!cancelled) setQuoteLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
+  // Debounced exact-in quote via hook; updates `toAmount` and meta
+  const {
+    toAmount: computedToAmount,
+    loading: quoteLoading,
+    meta: lastQuoteMeta,
+  } = useSwapQuoteExactIn({
     fromChainId,
     toChainId,
-    swapState.fromToken?.address,
-    swapState.toToken?.address,
-    amountSide,
-    // Only re-run when the active side amount changes
-    amountSide === "from" ? swapState.fromAmount : swapState.toAmount,
-    swapState.slippage,
-    address,
-  ]);
+    fromToken: swapState.fromToken,
+    toToken: swapState.toToken,
+    amountIn: swapState.fromAmount,
+    slippage: swapState.slippage,
+    userAddress: address as string | undefined,
+    fallbackPrices: {
+      fromPrice: swapState.fromToken.price,
+      toPrice: swapState.toToken.price,
+    },
+  });
+
+  useEffect(() => {
+    setSwapState((prev) => ({ ...prev, toAmount: computedToAmount }));
+  }, [computedToAmount]);
 
   useClickOutside(tokenSelectorRef, () => setShowTokenSelector(null));
   useClickOutside(settingsRef, () => setShowSettings(false));
@@ -467,6 +346,18 @@ function CryptoSwapBase({
   useEffect(() => {
     if (!showTokenSelector) setTokenSearch("");
   }, [showTokenSelector]);
+
+  // When opening the 'to' selector and remote networks have loaded, bind selectorNetwork to the loaded object
+  useEffect(() => {
+    if (showTokenSelector !== "to") return;
+    if (!toNetworks || toNetworks.length === 0) return;
+    setHasFetchedToTokens(true);
+    setSelectorNetwork((prev) => {
+      if (!prev) return toNetworks[0] as any;
+      const found = toNetworks.find((n) => n.id === prev.id);
+      return (found as any) || toNetworks[0];
+    });
+  }, [showTokenSelector, toNetworks]);
 
   // Mouse tracking for glow effects
   useEffect(() => {
@@ -489,40 +380,7 @@ function CryptoSwapBase({
     };
   }, [isHovering]);
 
-  // Note: The combined effect above replaces the previous 'from-only' reset effect.
-
-  // Calculate fallback estimate ONLY when no fresh quote is available or in-flight.
-  // Mirrors the live quote direction based on amountSide.
-  useEffect(() => {
-    if (quoteLoading || lastQuoteOut != null) return;
-    if (amountSide === "from") {
-      const amt = swapState.fromAmount;
-      if (amt && !isNaN(Number(amt))) {
-        const fromValue = Number(amt) * swapState.fromToken.price;
-        const toAmount = (fromValue / swapState.toToken.price).toFixed(6);
-        setSwapState((prev) => ({ ...prev, toAmount }));
-      } else {
-        setSwapState((prev) => ({ ...prev, toAmount: "" }));
-      }
-    } else {
-      const amt = swapState.toAmount;
-      if (amt && !isNaN(Number(amt))) {
-        const toValue = Number(amt) * swapState.toToken.price;
-        const fromAmount = (toValue / swapState.fromToken.price).toFixed(6);
-        setSwapState((prev) => ({ ...prev, fromAmount }));
-      } else {
-        setSwapState((prev) => ({ ...prev, fromAmount: "" }));
-      }
-    }
-  }, [
-    amountSide,
-    swapState.fromAmount,
-    swapState.toAmount,
-    swapState.fromToken.price,
-    swapState.toToken.price,
-    quoteLoading,
-    lastQuoteOut,
-  ]);
+  // Note: fallback estimation is now handled inside useSwapQuoteExactIn when the quote fails.
 
   const handleTokenSelect = (token: Token) => {
     if (showTokenSelector === "from") {
@@ -728,36 +586,13 @@ function CryptoSwapBase({
                   placeholder="0.0"
                   value={swapState.fromAmount}
                   onChange={(e) => {
-                    setAmountSide("from");
                     setSwapState((prev) => ({
                       ...prev,
                       fromAmount: e.target.value,
                     }));
                   }}
-                  onFocus={() => setAmountSide("from")}
-                  onInput={() => setAmountSide("from")}
                   className="min-w-0 flex-1 bg-transparent text-right text-2xl font-semibold outline-none placeholder:text-muted-foreground"
                 />
-              </div>
-
-              <div className="flex justify-between items-center mt-2">
-                <span className="text-xs text-muted-foreground"></span>
-                <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                  {fromPriceLoading ? (
-                    <>
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      <span>Fetching price…</span>
-                    </>
-                  ) : (
-                    <>
-                      ≈ $
-                      {(
-                        Number(swapState.fromAmount || 0) *
-                        swapState.fromToken.price
-                      ).toFixed(2)}
-                    </>
-                  )}
-                </span>
               </div>
             </div>
           </motion.div>
@@ -815,15 +650,19 @@ function CryptoSwapBase({
                     setShowTokenSelector("to");
                   }}
                 >
-                  <AssetLogo
-                    kind="token"
-                    id={swapState.toToken.symbol}
-                    size={36}
-                    src={swapState.toToken.logoUrl}
-                  />
+                  {hasFetchedToTokens && (
+                    <AssetLogo
+                      kind="token"
+                      id={swapState.toToken.symbol}
+                      size={36}
+                      src={swapState.toToken.logoUrl}
+                    />
+                  )}
                   <div className="flex flex-col leading-tight items-start justify-start">
                     <span className="font-semibold">
-                      {swapState.toToken.symbol}
+                      {hasFetchedToTokens
+                        ? swapState.toToken.symbol
+                        : "Select Assets"}
                     </span>
                     <span className="text-xs text-muted-foreground flex items-center gap-2">
                       <span className="truncate max-w-[8rem] sm:max-w-[10rem]">
@@ -834,41 +673,15 @@ function CryptoSwapBase({
                   <ChevronDown className="w-4 h-4 text-muted-foreground self-center" />
                 </motion.button>
 
+                {/* To amount is read-only; it is computed from quotes or token prices */}
                 <input
-                  type="number"
+                  type="text"
                   placeholder="0.0"
                   value={swapState.toAmount}
-                  onChange={(e) => {
-                    setAmountSide("to");
-                    setSwapState((prev) => ({
-                      ...prev,
-                      toAmount: e.target.value,
-                    }));
-                  }}
-                  onFocus={() => setAmountSide("to")}
-                  onInput={() => setAmountSide("to")}
-                  className="min-w-0 flex-1 bg-transparent text-right text-2xl font-semibold outline-none placeholder:text-muted-foreground"
+                  readOnly
+                  aria-readonly="true"
+                  className="min-w-0 flex-1 bg-transparent text-right text-2xl font-semibold outline-none placeholder:text-muted-foreground cursor-default"
                 />
-              </div>
-
-              <div className="flex justify-between items-center mt-2">
-                <span className="text-xs text-muted-foreground"></span>
-                <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                  {toPriceLoading ? (
-                    <>
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      <span>Fetching price…</span>
-                    </>
-                  ) : (
-                    <>
-                      ≈ $
-                      {(
-                        Number(swapState.toAmount || 0) *
-                        swapState.toToken.price
-                      ).toFixed(2)}
-                    </>
-                  )}
-                </span>
               </div>
             </div>
           </motion.div>
@@ -881,25 +694,7 @@ function CryptoSwapBase({
               animate={{ opacity: 1, height: "auto" }}
               transition={{ duration: 0.3 }}
             >
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Rate</span>
-                <span className="inline-flex items-center gap-2">
-                  {fromPriceLoading || toPriceLoading || quoteLoading ? (
-                    <>
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      Updating…
-                    </>
-                  ) : (
-                    <>
-                      1 {swapState.fromToken.symbol} ={" "}
-                      {(
-                        swapState.toToken.price / swapState.fromToken.price
-                      ).toFixed(6)}{" "}
-                      {swapState.toToken.symbol}
-                    </>
-                  )}
-                </span>
-              </div>
+              {/* Rate row removed: we only show the estimated out amount, not an implied rate */}
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Slippage</span>
                 <span>{swapState.slippage}%</span>
@@ -1018,39 +813,32 @@ function CryptoSwapBase({
                     disabled={showTokenSelector === "to" && toLoading}
                   />
                 </div>
-                {/* Network chips (show loader when fetching to-side assets) */}
+                {/* Network chips */}
                 <div className="flex gap-2 mb-3 overflow-x-auto">
-                  {showTokenSelector === "to" && toLoading ? (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="w-4 h-4 animate-spin" /> Fetching
-                      assets…
-                    </div>
-                  ) : (
-                    (showTokenSelector === "from"
-                      ? fromNetworks
-                      : toNetworks
-                    ).map((net) => (
-                      <button
-                        type="button"
-                        key={net.id}
-                        className={cn(
-                          "px-3 py-1.5 rounded-full text-sm border",
-                          (selectorNetwork?.id ??
-                            (showTokenSelector === "from"
-                              ? swapState.fromNetwork.id
-                              : swapState.toNetwork.id)) === net.id
-                            ? "bg-muted text-foreground border-border"
-                            : "bg-background text-muted-foreground border-border/50",
-                        )}
-                        onClick={() => setSelectorNetwork(net)}
-                      >
-                        <span className="mr-1 inline-flex align-middle">
-                          <AssetLogo kind="network" id={net.id} size={16} />
-                        </span>
-                        <span className="align-middle">{net.name}</span>
-                      </button>
-                    ))
-                  )}
+                  {(showTokenSelector === "from"
+                    ? fromNetworks
+                    : toNetworks
+                  ).map((net) => (
+                    <button
+                      type="button"
+                      key={net.id}
+                      className={cn(
+                        "px-3 py-1.5 rounded-full text-sm border",
+                        (selectorNetwork?.id ??
+                          (showTokenSelector === "from"
+                            ? swapState.fromNetwork.id
+                            : swapState.toNetwork.id)) === net.id
+                          ? "bg-muted text-foreground border-border"
+                          : "bg-background text-muted-foreground border-border/50",
+                      )}
+                      onClick={() => setSelectorNetwork(net)}
+                    >
+                      <span className="mr-1 inline-flex align-middle">
+                        <AssetLogo kind="network" id={net.id} size={16} />
+                      </span>
+                      <span className="align-middle">{net.name}</span>
+                    </button>
+                  ))}
                 </div>
                 {/* Tokens list */}
                 <div className="space-y-2 max-h-80 overflow-y-auto">
@@ -1064,9 +852,11 @@ function CryptoSwapBase({
                       selectorNetwork ??
                       (showTokenSelector === "from"
                         ? swapState.fromNetwork
-                        : swapState.toNetwork)
+                        : (toNetworks.find(
+                          (n) => n.id === swapState.toNetwork.id,
+                        ) as any) || swapState.toNetwork)
                     ).tokens
-                      .filter((token) => {
+                      .filter((token: any) => {
                         const q = tokenSearch.trim().toLowerCase();
                         if (!q) return true;
                         return (
@@ -1074,7 +864,14 @@ function CryptoSwapBase({
                           token.name.toLowerCase().includes(q)
                         );
                       })
-                      .map((token, index) => (
+                      // For 'to' side, ensure the currently selected 'from' token is excluded
+                      .filter(
+                        (token: any) =>
+                          showTokenSelector !== "to" ||
+                          token.address.toLowerCase() !==
+                          (swapState.fromToken?.address || "").toLowerCase(),
+                      )
+                      .map((token: any, index: number) => (
                         <motion.button
                           key={token.address}
                           className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-muted/50 transition-colors"

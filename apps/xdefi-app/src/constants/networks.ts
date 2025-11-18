@@ -4,6 +4,10 @@
 
 import { getNetworkConfig, getSupportedNetworks } from '@x402x/core';
 
+// OKX Aggregator: canonical address used to represent the chain's native token
+export const NATIVE_TOKEN_ADDRESS =
+  "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" as const;
+
 export type PaymentToken = {
   symbol: string;
   label: string;
