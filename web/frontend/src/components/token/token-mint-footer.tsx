@@ -39,7 +39,7 @@ export const TokenMintFooter = ({ onLearnMore }: TokenMintFooterProps) => {
                         )}
                     </div>
                     <div className="break-all">
-                        <span className="text-slate-500">Token Contract: </span>
+                        <span className="text-slate-500">$X402X Contract: </span>
                         {tokenExplorerUrl ? (
                             <a
                                 href={tokenExplorerUrl}

@@ -85,7 +85,7 @@ export const TokenPage = () => {
                 <div className="space-y-0">
                     <section
                         id="mint"
-                        className="py-10 bg-yellow-50 border-b border-slate-200"
+                        className="py-10 bg-slate-50 border-b border-slate-200"
                     >
                         <TokenMint />
                     </section>

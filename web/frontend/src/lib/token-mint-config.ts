@@ -20,12 +20,12 @@ export const X402X_TOKEN_CONFIG = {
 	mintAllocationTokens: 100_000_000, // 10% of total supply
 
 	// ERC20 token contract for $X402X
-	address: "0x904E982D70079eeDAA4AeaA51861ae3F59e02bbe" as `0x${string}`,
+	address: "0x2fDb94bAa9D664a1879BEe1f944F5F5d2dad4451" as `0x${string}`,
 } as const;
 
 export const X402X_MINT_CONFIG = {
 	// Mint / hook contract that receives USDC and mints $X402X (used as x402x hook).
-	address: "0x4f6F911AE72d717b4ED96FEFabB6ddbf3ae8B921" as `0x${string}`,
+	address: "0x3169C3FAc92BE7E6b4F4fd6B759564163216B6a3" as `0x${string}`,
 
 	// Bonding curve parameters (front-end only; keep in sync with contract).
 	// P0: starting price (in USDC per token, human-readable).

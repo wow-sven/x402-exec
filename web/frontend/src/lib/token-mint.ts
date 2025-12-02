@@ -17,12 +17,6 @@ import {
 	publicActions,
 } from "viem";
 
-type TokenMintContext = {
-	address: `0x${string}`;
-	networkKey: string;
-	mintContract: `0x${string}`;
-};
-
 // Bonding curve helper – mirrors the contract's exponential model approximately:
 // P(x) ≈ P0 * exp(k * x), where x = tokensSold / TOTAL_SALE_SUPPLY (0..1).
 // We use the human-readable P0/k from config; keep them in sync with the contract.
@@ -46,11 +40,7 @@ export function calculateBondingCurvePrice(
 	return Number.isFinite(price) ? price : 0;
 }
 
-export async function fetchMintedTokens(
-	params: TokenMintContext,
-): Promise<number | null> {
-	const { mintContract } = params;
-
+export async function fetchMintedTokens(): Promise<number | null> {
 	try {
 		const client = createPublicClient({
 			chain: X402X_MINT_CONFIG.chain,
@@ -58,7 +48,7 @@ export async function fetchMintedTokens(
 		}).extend(publicActions);
 
 		const sold = (await client.readContract({
-			address: mintContract,
+			address: X402X_MINT_CONFIG.address,
 			abi: tokenMintABI,
 			functionName: "tokensSold",
 		})) as bigint;
@@ -79,12 +69,9 @@ export async function fetchMintedTokens(
 
 export async function estimateMintTokensForUsdc({
 	amountUsdc,
-	...rest
-}: TokenMintContext & {
+}: {
 	amountUsdc: string;
 }): Promise<number | null> {
-	const { mintContract } = rest;
-
 	const raw = amountUsdc.trim();
 	if (!raw) return null;
 
@@ -103,7 +90,7 @@ export async function estimateMintTokensForUsdc({
 
 	try {
 		const tokens = (await client.readContract({
-			address: mintContract,
+			address: X402X_MINT_CONFIG.address,
 			abi: tokenMintABI,
 			functionName: "calculateTokensForUsdc",
 			args: [amountAtomic],
@@ -121,12 +108,9 @@ export async function estimateMintTokensForUsdc({
 
 export async function executeTokenMint({
 	amountUsdc,
-	...context
-}: TokenMintContext & {
+}: {
 	amountUsdc: string;
 }): Promise<{ txHash: string }> {
-	const { address, mintContract } = context;
-
 	const value = amountUsdc.trim();
 	if (!value) {
 		throw new Error("Please enter the amount of USDC");
@@ -163,6 +147,8 @@ export async function executeTokenMint({
 		);
 	}
 
+	const address = appKit.getAddress() as `0x${string}`;
+
 	const wallet = createWalletClient({
 		account: address,
 		chain: X402X_MINT_CONFIG.chain,
@@ -178,10 +164,10 @@ export async function executeTokenMint({
 	});
 
 	const result = await client.execute({
-		hook: mintContract,
+		hook: X402X_MINT_CONFIG.address,
 		hookData: "0x",
 		amount: amountAtomic.toString(),
-		payTo: address,
+		payTo: X402X_MINT_CONFIG.address,
 	});
 
 	return { txHash: result.txHash };

@@ -1,6 +1,15 @@
-import { AlertCircle, ArrowDown, CheckCircle2, Hammer, Loader2, Wallet, Zap } from "lucide-react";
+import {
+    AlertCircle,
+    ArrowDown,
+    CheckCircle2,
+    Hammer,
+    Loader2,
+    Wallet,
+    Zap,
+} from "lucide-react";
 
 import { Input } from "@/components/ui/input";
+import { X402X_MINT_CONFIG } from "@/lib/token-mint-config";
 
 type TokenMintActionProps = {
     isConnected: boolean;
@@ -33,6 +42,12 @@ export const TokenMintAction = ({
     buttonDisabled,
     handlePrimaryAction,
 }: TokenMintActionProps) => {
+    const explorerBaseUrl =
+        X402X_MINT_CONFIG.chain?.blockExplorers?.default?.url?.replace(/\/$/, "");
+
+    const txExplorerUrl =
+        explorerBaseUrl && txHash ? `${explorerBaseUrl}/tx/${txHash}` : undefined;
+
     return (
         <div className="p-8 lg:p-12 bg-slate-50/50">
             <div className="h-full flex flex-col">
@@ -92,12 +107,17 @@ export const TokenMintAction = ({
 
                         {/* Output Preview */}
                         <div>
-                            <label
-                                htmlFor="output"
-                                className="block text-xs font-semibold text-slate-600 mb-2"
-                            >
-                                You Mint
-                            </label>
+                            <div className="flex items-center justify-between mb-2">
+                                <label
+                                    htmlFor="output"
+                                    className="text-xs font-semibold text-slate-600"
+                                >
+                                    You Mint
+                                </label>
+                                <p className="text-[11px] text-slate-400">
+                                    Preview only – final amount depends on on-chain execution
+                                </p>
+                            </div>
                             <div className="w-full bg-slate-50 border border-slate-200 rounded-lg py-4 px-4 flex justify-between items-center">
                                 <span
                                     className={`text-xl font-bold ${estimatedTokens && estimatedTokens > 0
@@ -115,27 +135,7 @@ export const TokenMintAction = ({
                                     $X402X
                                 </span>
                             </div>
-                            <p className="text-[11px] text-slate-400 mt-2 text-right">
-                                Preview only – final amount depends on on-chain execution
-                            </p>
                         </div>
-
-                        {isSuccess && txHash && (
-                            <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 flex items-start gap-2">
-                                <CheckCircle2
-                                    className="text-emerald-500 shrink-0 mt-0.5"
-                                    size={16}
-                                />
-                                <div>
-                                    <p className="text-xs font-medium text-emerald-700">
-                                        Mint transaction submitted
-                                    </p>
-                                    <p className="text-[11px] text-emerald-600 font-mono break-all mt-1">
-                                        {txHash}
-                                    </p>
-                                </div>
-                            </div>
-                        )}
                     </div>
 
                     {/* Action Button */}
@@ -184,6 +184,36 @@ export const TokenMintAction = ({
                                 </>
                             )}
                         </button>
+
+                        {isSuccess && txHash && (
+                            <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 flex items-start gap-2 mt-3">
+                                <CheckCircle2
+                                    className="text-emerald-500 shrink-0 mt-0.5"
+                                    size={16}
+                                />
+                                <div>
+                                    <p className="text-[11px]">
+                                        <span className="text-xs font-medium text-emerald-700">
+                                            Mint transaction submitted:{" "}
+                                        </span>
+                                        <span className="text-emerald-600 font-mono">
+                                            {txExplorerUrl ? (
+                                                <a
+                                                    href={txExplorerUrl}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="underline decoration-dotted underline-offset-2 hover:text-emerald-700"
+                                                >
+                                                    {shortAddress(txHash ?? undefined)}
+                                                </a>
+                                            ) : (
+                                                <span>{shortAddress(txHash ?? undefined)}</span>
+                                            )}
+                                        </span>
+                                    </p>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

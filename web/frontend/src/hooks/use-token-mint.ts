@@ -67,11 +67,7 @@ export function useTokenMint(
 		let cancelled = false;
 		async function load() {
 			if (!address) return;
-			const minted = await fetchMintedTokens({
-				address: address as `0x${string}`,
-				networkKey,
-				mintContract,
-			});
+			const minted = await fetchMintedTokens();
 			if (cancelled || minted == null) return;
 			setMintedTokens(minted);
 		}
@@ -81,7 +77,7 @@ export function useTokenMint(
 		return () => {
 			cancelled = true;
 		};
-	}, [address, networkKey, mintContract]);
+	}, [address]);
 
 	const currentPrice: number | null = useMemo(() => {
 		const price = calculateBondingCurvePrice(
@@ -96,12 +92,9 @@ export function useTokenMint(
 			if (!isConnected || !address) return null;
 			return estimateMintTokensForUsdc({
 				amountUsdc,
-				address: address as `0x${string}`,
-				networkKey,
-				mintContract,
 			});
 		},
-		[isConnected, address, networkKey, mintContract],
+		[isConnected, address],
 	);
 
 	const executeMint = useCallback(
@@ -126,9 +119,6 @@ export function useTokenMint(
 
 				const { txHash } = await executeTokenMint({
 					amountUsdc: value,
-					address: address as `0x${string}`,
-					networkKey,
-					mintContract,
 				});
 
 				setTxHash(txHash);
@@ -138,7 +128,7 @@ export function useTokenMint(
 				setError("Token mint via x402x failed, please try again later");
 			}
 		},
-		[isConnected, address, connectWallet, networkKey, mintContract],
+		[isConnected, address, connectWallet],
 	);
 
 	return {
