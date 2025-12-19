@@ -17,8 +17,8 @@ import type { GasCostConfig } from "./gas-cost.js";
 import type { DynamicGasPriceConfig } from "./dynamic-gas-price.js";
 import type { TokenPriceConfig } from "./token-price.js";
 import { networkChainResolver } from "./network-chain-resolver.js";
-import type { GasEstimationConfig } from "./gas-estimation.js";
 import { DEFAULTS } from "./defaults.js";
+import { GasEstimationConfig } from "./gas-estimation/index.js";
 
 // Load environment variables
 loadEnv();
