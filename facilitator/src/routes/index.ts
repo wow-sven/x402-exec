@@ -22,17 +22,19 @@ import type { TokenPriceConfig } from "../token-price.js";
 /**
  * All dependencies required by routes
  */
-export interface RoutesDependencies
-  extends HealthRouteDependencies,
-    VerifyRouteDependencies,
-    SettleRouteDependencies,
-    SupportedRouteDependencies,
-    FeeRouteDependencies,
-    StatsRouteDependencies {
-  gasCost: GasCostConfig;
-  dynamicGasPrice: DynamicGasPriceConfig;
-  tokenPrice: TokenPriceConfig;
-}
+export type RoutesDependencies =
+  HealthRouteDependencies &
+  SupportedRouteDependencies &
+  StatsRouteDependencies &
+  VerifyRouteDependencies &
+  SettleRouteDependencies & {
+    // Override optional properties from SettleRouteDependencies to make them required
+    gasCost: GasCostConfig;
+    dynamicGasPrice: DynamicGasPriceConfig;
+    tokenPrice: TokenPriceConfig;
+    gasEstimation: import("../gas-estimation/index.js").GasEstimationConfig;
+    feeClaim: import("../fee-claim.js").FeeClaimConfig;
+  };
 
 /**
  * Rate limiters for specific routes
