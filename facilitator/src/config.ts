@@ -81,10 +81,6 @@ export interface FeeClaimConfig {
 export interface V2Config {
   /** Enable v2 support (requires FACILITATOR_ENABLE_V2=true) */
   enabled: boolean;
-  /** Facilitator signer address for v2 (optional, will be derived from privateKey if not provided) */
-  signer?: string;
-  /** Private key for v2 signing (reuses EVM_PRIVATE_KEY from v1) */
-  privateKey?: string;
   /** Allowed routers per network for v2 (CAIP-2 network IDs) */
   allowedRouters?: Record<string, string[]>;
 }
@@ -567,7 +563,7 @@ function parseTokenPriceConfig(): TokenPriceConfig {
 function parseGasEstimationConfig(): GasEstimationConfig {
   return {
     enabled: process.env.PREVALIDATION_ENABLED !== "false", // Default: true
-    strategy: (process.env.GAS_ESTIMATION_STRATEGY as 'code' | 'simulation' | 'smart') || "smart", // Default: smart
+    strategy: (process.env.GAS_ESTIMATION_STRATEGY as "code" | "simulation" | "smart") || "smart", // Default: smart
     codeValidationEnabled: process.env.CODE_VALIDATION_ENABLED !== "false", // Default: true
     safetyMultiplier: parseFloat(process.env.GAS_ESTIMATION_SAFETY_MULTIPLIER || "1.2"), // Default: 1.2x
     timeoutMs: parseInt(process.env.GAS_ESTIMATION_TIMEOUT_MS || "5000"), // Default: 5 seconds
@@ -575,12 +571,8 @@ function parseGasEstimationConfig(): GasEstimationConfig {
 }
 
 /**
- * Load and parse all application configuration
- *
- * @returns Complete application configuration object
- */
-/**
  * Parse v2 configuration from environment variables
+ * V2 now uses the shared AccountPool (evmPrivateKeys), so no separate keys needed
  *
  * @returns V2 configuration object
  */
@@ -591,31 +583,26 @@ function parseV2Config(): V2Config {
     return { enabled: false };
   }
 
-  // Parse v2 signer (optional, for unlocked account mode)
-  const signer = process.env.FACILITATOR_V2_SIGNER;
-
-  // Get private key from v1's EVM_PRIVATE_KEY for local signing
-  const privateKey = process.env.EVM_PRIVATE_KEY;
-
-  // Either signer or privateKey must be provided
-  if (!signer && !privateKey) {
-    throw new Error("FACILITATOR_V2_SIGNER or EVM_PRIVATE_KEY is required when FACILITATOR_ENABLE_V2=true");
-  }
-
   // Parse v2 allowed routers (optional)
   let allowedRouters: Record<string, string[]> | undefined;
   if (process.env.FACILITATOR_V2_ALLOWED_ROUTERS) {
     try {
       const parsed = JSON.parse(process.env.FACILITATOR_V2_ALLOWED_ROUTERS);
       if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-        throw new Error("FACILITATOR_V2_ALLOWED_ROUTERS must be a JSON object mapping router IDs to arrays of chain IDs");
+        throw new Error(
+          "FACILITATOR_V2_ALLOWED_ROUTERS must be a JSON object mapping router IDs to arrays of chain IDs",
+        );
       }
       for (const [router, chains] of Object.entries(parsed)) {
         if (!Array.isArray(chains)) {
-          throw new Error(`FACILITATOR_V2_ALLOWED_ROUTERS value for router "${router}" must be an array`);
+          throw new Error(
+            `FACILITATOR_V2_ALLOWED_ROUTERS value for router "${router}" must be an array`,
+          );
         }
         if (!chains.every((chain) => typeof chain === "string")) {
-          throw new Error(`FACILITATOR_V2_ALLOWED_ROUTERS array for router "${router}" must contain only strings`);
+          throw new Error(
+            `FACILITATOR_V2_ALLOWED_ROUTERS array for router "${router}" must contain only strings`,
+          );
         }
       }
       allowedRouters = parsed as Record<string, string[]>;
@@ -626,8 +613,6 @@ function parseV2Config(): V2Config {
 
   return {
     enabled: true,
-    signer,
-    privateKey,
     allowedRouters,
   };
 }

@@ -40,6 +40,26 @@ vi.mock("@x402x/core_v2", () => ({
     }
     return extra;
   }),
+  toCanonicalNetworkKey: vi.fn((network) => {
+    // For CAIP-2 format, return as-is; for v1 names, convert to CAIP-2
+    if (network.startsWith("eip155:")) {
+      return network;
+    }
+    // Convert common v1 names to CAIP-2
+    const nameToId: Record<string, string> = {
+      "base-sepolia": "eip155:84532",
+      "base": "eip155:8453",
+    };
+    return nameToId[network] || network;
+  }),
+  getNetworkName: vi.fn((network) => {
+    // Convert CAIP-2 to v1 name
+    const idToName: Record<string, string> = {
+      "eip155:84532": "base-sepolia",
+      "eip155:8453": "base",
+    };
+    return idToName[network] || network;
+  }),
   getNetworkConfig: vi.fn(() => ({
     settlementRouter: MOCK_ADDRESSES.settlementRouter,
     rpcUrls: {
@@ -48,7 +68,9 @@ vi.mock("@x402x/core_v2", () => ({
       },
     },
   })),
-  calculateCommitment: vi.fn(() => "0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef"),
+  calculateCommitment: vi.fn(
+    () => "0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef",
+  ),
 }));
 
 describe("Integration tests", () => {
@@ -61,19 +83,25 @@ describe("Integration tests", () => {
     // Configure mocks for successful verification
     mockPublicClient.readContract.mockImplementation((params) => {
       // Handle different function calls
-      if (params.functionName === 'isSettled') {
+      if (params.functionName === "isSettled") {
         return Promise.resolve(false);
       }
-      if (params.functionName === 'balanceOf') {
+      if (params.functionName === "balanceOf") {
         // Return very large balance to support maximum facilitator fee tests
-        return Promise.resolve(BigInt("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"));
+        return Promise.resolve(
+          BigInt("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"),
+        );
       }
       // Default fallback
-      return Promise.resolve(BigInt("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"));
+      return Promise.resolve(
+        BigInt("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"),
+      );
     });
 
     // Configure wallet client for successful settlement
-    mockWalletClient.writeContract.mockResolvedValue("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890" as `0x${string}`);
+    mockWalletClient.writeContract.mockResolvedValue(
+      "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890" as `0x${string}`,
+    );
 
     facilitator = createRouterSettlementFacilitator({
       signer: MOCK_ADDRESSES.facilitator,
@@ -111,18 +139,18 @@ describe("Integration tests", () => {
     });
 
     it("should reject at verification step for invalid payment", async () => {
-      const invalidPayload = {
-        ...mockPaymentPayload,
+      const invalidRequirements = {
+        ...mockPaymentRequirements,
         scheme: "invalid-scheme",
       };
 
       // Step 1: Verification should fail
-      const verification = await facilitator.verify(invalidPayload, mockPaymentRequirements);
+      const verification = await facilitator.verify(mockPaymentPayload, invalidRequirements);
       expect(verification.isValid).toBe(false);
       expect(verification.invalidReason).toContain("Scheme mismatch");
 
       // Step 2: Settlement should also fail
-      const settlement = await facilitator.settle(invalidPayload, mockPaymentRequirements);
+      const settlement = await facilitator.settle(mockPaymentPayload, invalidRequirements);
       expect(settlement.success).toBe(false);
       expect(settlement.errorReason).toContain("Scheme mismatch");
     });
@@ -141,7 +169,10 @@ describe("Integration tests", () => {
       });
 
       // Test Base Sepolia network
-      const verification1 = await multiNetworkFacilitator.verify(mockPaymentPayload, mockPaymentRequirements);
+      const verification1 = await multiNetworkFacilitator.verify(
+        mockPaymentPayload,
+        mockPaymentRequirements,
+      );
       expect(verification1.isValid).toBe(true);
 
       // Test Base mainnet
@@ -150,7 +181,10 @@ describe("Integration tests", () => {
         network: "eip155:8453",
       };
 
-      const verification2 = await multiNetworkFacilitator.verify(mockPaymentPayload, mainnetRequirements);
+      const verification2 = await multiNetworkFacilitator.verify(
+        mockPaymentPayload,
+        mainnetRequirements,
+      );
       expect(verification2.isValid).toBe(true);
     });
   });
@@ -194,7 +228,10 @@ describe("Integration tests", () => {
         },
       };
 
-      const verification = await facilitator.verify(mockPaymentPayload, complexHookDataRequirements);
+      const verification = await facilitator.verify(
+        mockPaymentPayload,
+        complexHookDataRequirements,
+      );
       expect(verification.isValid).toBe(true);
 
       const settlement = await facilitator.settle(mockPaymentPayload, complexHookDataRequirements);
@@ -231,5 +268,4 @@ describe("Integration tests", () => {
       expect(settlement.errorReason).toContain("SettlementRouter execution failed");
     });
   });
-
-  });
+});

@@ -187,8 +187,6 @@ async function main() {
         gasEstimation: config.gasEstimation,
         rpcUrls: config.dynamicGasPrice.rpcUrls,
         enableV2: config.v2.enabled,
-        v2Signer: config.v2.signer,
-        v2PrivateKey: config.v2.privateKey,
         allowedRouters: config.v2.allowedRouters,
       },
       requestBodyLimit: config.server.requestBodyLimit,
@@ -243,14 +241,27 @@ async function main() {
       logger.info("  GET  /health     - Health check (liveness probe)");
       logger.info("  GET  /ready      - Readiness check (with account pool status)");
       logger.info("  GET  /supported  - List supported payment kinds");
-      logger.info(`  POST /verify     - Verify payment payload (supports v1${config.v2.enabled ? " and v2" : ""})`);
-      logger.info(`  POST /settle     - Settle payment (supports v1${config.v2.enabled ? " and v2" : ""})`);
+      logger.info(
+        `  POST /verify     - Verify payment payload (supports v1${config.v2.enabled ? " and v2" : ""})`,
+      );
+      logger.info(
+        `  POST /settle     - Settle payment (supports v1${config.v2.enabled ? " and v2" : ""})`,
+      );
     });
 
     // Register server for graceful shutdown
     shutdownManager.registerServer(server);
   } catch (error) {
-    logger.fatal({ error }, "Failed to initialize application");
+    // Log richer diagnostic info to help identify validation/config errors
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.fatal(
+      {
+        error: err,
+        message: err.message,
+        stack: err.stack,
+      },
+      "Failed to initialize application",
+    );
     process.exit(1);
   }
 }

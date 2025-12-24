@@ -8,7 +8,6 @@
 /// <reference path="./types.d.ts" />
 
 import { verify as v1Verify, settle as v1Settle } from "x402/facilitator";
-import { createRouterSettlementFacilitator } from "@x402x/facilitator_v2";
 import type { PaymentPayload, PaymentRequirements, X402Config } from "x402/types";
 import type { PaymentRequirements as V2PaymentRequirements } from "@x402x/core_v2";
 import type { VerifyResponse, SettleResponse } from "x402/types";
@@ -26,10 +25,6 @@ const logger = getLogger();
 export interface VersionDispatcherConfig {
   /** Enable v2 support (requires FACILITATOR_ENABLE_V2=true) */
   enableV2?: boolean;
-  /** Facilitator signer address for v2 (optional, will be derived from privateKey if not provided) */
-  signer?: string;
-  /** Private key for v2 local signing (reuses EVM_PRIVATE_KEY from v1) */
-  privateKey?: string;
   /** Allowed routers per network for v2 */
   allowedRouters?: Record<string, string[]>;
   /** RPC URLs per network for both v1 and v2 */
@@ -68,25 +63,18 @@ export interface SettleRequest {
  * Version dispatcher that routes to appropriate implementation
  */
 export class VersionDispatcher {
-  private v2Facilitator?: ReturnType<typeof createRouterSettlementFacilitator>;
-
   constructor(
     private deps: VersionDispatcherDependencies,
-    private config: VersionDispatcherConfig = {}
+    private config: VersionDispatcherConfig = {},
   ) {
-    // Initialize v2 facilitator if enabled
-    if (this.config.enableV2 && (this.config.signer || this.config.privateKey)) {
-      this.v2Facilitator = createRouterSettlementFacilitator({
-        signer: this.config.signer,
-        privateKey: this.config.privateKey,
-        allowedRouters: this.config.allowedRouters,
-        rpcUrls: this.config.rpcUrls,
-      });
-      logger.info("V2 facilitator initialized");
-    }
-
     if (this.config.enableV2) {
-      logger.info("Version dispatcher: v2 support enabled");
+      logger.info(
+        {
+          hasAllowedRouters: !!this.config.allowedRouters,
+          hasRpcUrls: !!this.config.rpcUrls,
+        },
+        "Version dispatcher: v2 support enabled (using shared AccountPool)",
+      );
     } else {
       logger.info("Version dispatcher: v1 only mode");
     }
@@ -105,9 +93,10 @@ export class VersionDispatcher {
 
       // Check if version is supported
       if (!isVersionSupported(version)) {
-        const error = version === 2
-          ? "V2 support is not enabled. Set FACILITATOR_ENABLE_V2=true to enable."
-          : `Unsupported x402Version: ${version}`;
+        const error =
+          version === 2
+            ? "V2 support is not enabled. Set FACILITATOR_ENABLE_V2=true to enable."
+            : `Unsupported x402Version: ${version}`;
 
         logger.warn({ version, error }, "Version not supported");
         recordMetric("facilitator.verify.version_not_supported", 1, { version: String(version) });
@@ -151,17 +140,19 @@ export class VersionDispatcher {
         mode,
       });
 
-      logger.info({
-        version,
-        mode,
-        network: canonicalNetwork,
-        isValid: result.isValid,
-        payer: result.payer,
-        duration_ms: duration,
-      }, "Verification completed");
+      logger.info(
+        {
+          version,
+          mode,
+          network: canonicalNetwork,
+          isValid: result.isValid,
+          payer: result.payer,
+          duration_ms: duration,
+        },
+        "Verification completed",
+      );
 
       return result;
-
     } catch (error) {
       const duration = Date.now() - startTime;
       logger.error({ error, duration_ms: duration }, "Verification failed");
@@ -171,7 +162,8 @@ export class VersionDispatcher {
 
       return {
         isValid: false,
-        invalidReason: "Verification failed due to internal error" as VerifyResponse["invalidReason"],
+        invalidReason:
+          "Verification failed due to internal error" as VerifyResponse["invalidReason"],
       };
     }
   }
@@ -189,9 +181,10 @@ export class VersionDispatcher {
 
       // Check if version is supported
       if (!isVersionSupported(version)) {
-        const error = version === 2
-          ? "V2 support is not enabled. Set FACILITATOR_ENABLE_V2=true to enable."
-          : `Unsupported x402Version: ${version}`;
+        const error =
+          version === 2
+            ? "V2 support is not enabled. Set FACILITATOR_ENABLE_V2=true to enable."
+            : `Unsupported x402Version: ${version}`;
 
         logger.warn({ version, error }, "Version not supported");
         recordMetric("facilitator.settle.version_not_supported", 1, { version: String(version) });
@@ -232,18 +225,20 @@ export class VersionDispatcher {
         mode,
       });
 
-      logger.info({
-        version,
-        mode,
-        network: canonicalNetwork,
-        success: result.success,
-        transaction: result.transaction,
-        payer: result.payer,
-        duration_ms: duration,
-      }, "Settlement completed");
+      logger.info(
+        {
+          version,
+          mode,
+          network: canonicalNetwork,
+          success: result.success,
+          transaction: result.transaction,
+          payer: result.payer,
+          duration_ms: duration,
+        },
+        "Settlement completed",
+      );
 
       return result;
-
     } catch (error) {
       const duration = Date.now() - startTime;
       logger.error({ error, duration_ms: duration }, "Settlement failed");
@@ -261,7 +256,7 @@ export class VersionDispatcher {
    */
   private async verifyV1(
     paymentPayload: PaymentPayload,
-    paymentRequirements: PaymentRequirements
+    paymentRequirements: PaymentRequirements,
   ): Promise<VerifyResponse> {
     // Create client (same as current v1 implementation)
     const { evm } = await import("x402/types");
@@ -273,7 +268,8 @@ export class VersionDispatcher {
     }
 
     const chain = evm.getChainFromNetwork(paymentRequirements.network);
-    const rpcUrl = this.config.rpcUrls?.[paymentRequirements.network] || chain.rpcUrls?.default?.http?.[0];
+    const rpcUrl =
+      this.config.rpcUrls?.[paymentRequirements.network] || chain.rpcUrls?.default?.http?.[0];
     const client = createPublicClient({
       chain,
       transport: http(rpcUrl),
@@ -285,17 +281,27 @@ export class VersionDispatcher {
 
   /**
    * V2 verification implementation
+   * Uses direct validation without creating a separate facilitator instance
    */
   private async verifyV2(
     paymentPayload: PaymentPayload,
-    paymentRequirements: V2PaymentRequirements
+    paymentRequirements: V2PaymentRequirements,
   ): Promise<VerifyResponse> {
-    if (!this.v2Facilitator) {
-      throw new Error("V2 facilitator not initialized");
-    }
+    // Import v2 verification utilities
+    const { createRouterSettlementFacilitator } = await import("@x402x/facilitator_v2");
+
+    // Create a temporary facilitator for verification (no signer needed for verify)
+    // Note: Verification only checks signatures and balances on-chain, it doesn't send transactions.
+    // The zero address is used as a placeholder since no actual signing occurs during verification.
+    // This is safe because the facilitator's verify() method doesn't use the signer for any operations.
+    const facilitator = createRouterSettlementFacilitator({
+      allowedRouters: this.config.allowedRouters,
+      rpcUrls: this.config.rpcUrls,
+      signer: "0x0000000000000000000000000000000000000000", // Placeholder - not used for verification
+    });
 
     // Verify using v2 implementation
-    const result = await this.v2Facilitator.verify(paymentPayload, paymentRequirements);
+    const result = await facilitator.verify(paymentPayload, paymentRequirements);
 
     // Convert v2 response to v1 format for API consistency
     return {
@@ -310,7 +316,7 @@ export class VersionDispatcher {
    */
   private async settleV1(
     paymentPayload: PaymentPayload,
-    paymentRequirements: PaymentRequirements
+    paymentRequirements: PaymentRequirements,
   ): Promise<SettleResponse> {
     // Get account pool for v1 settlement
     const accountPool = this.deps.poolManager.getPool(paymentRequirements.network);
@@ -339,7 +345,7 @@ export class VersionDispatcher {
           signer,
           paymentPayload,
           paymentRequirements,
-          this.deps.allowedSettlementRouters || {}
+          this.deps.allowedSettlementRouters || {},
         );
 
         // Return standard format - type assertion for v2 -> v1 response conversion
@@ -359,33 +365,79 @@ export class VersionDispatcher {
 
   /**
    * V2 settlement implementation
+   * Uses AccountPool for queue management and duplicate payer detection
    */
   private async settleV2(
     paymentPayload: PaymentPayload,
-    paymentRequirements: V2PaymentRequirements
+    paymentRequirements: V2PaymentRequirements,
   ): Promise<SettleResponse> {
-    if (!this.v2Facilitator) {
-      throw new Error("V2 facilitator not initialized");
+    // Get account pool for the network (same as v1)
+    const accountPool = this.deps.poolManager.getPool(paymentRequirements.network);
+    if (!accountPool) {
+      throw new Error(`No account pool available for network: ${paymentRequirements.network}`);
     }
 
-    // Settle using v2 implementation
-    const result = await this.v2Facilitator.settle(paymentPayload, paymentRequirements);
+    // Extract payer address for duplicate detection
+    // V2 paymentPayload has payer field (unlike v1 which has nested structure)
+    const payerAddress = (paymentPayload as any).payer as string | undefined;
 
-    // Convert v2 response to v1 format for API consistency
-    return {
-      success: result.success,
-      transaction: result.transaction,
-      network: result.network as any,
-      payer: result.payer,
-      errorReason: result.errorReason as any,
-    } as SettleResponse;
+    // Execute in account pool (reuses queue, duplicate detection, etc.)
+    return accountPool.execute(async (signer) => {
+      // Import necessary modules dynamically
+      const facilitatorV2 = (await import("@x402x/facilitator_v2")) as any;
+
+      // Create public client for the network
+      const publicClient = facilitatorV2.createPublicClientForNetwork(
+        paymentRequirements.network,
+        this.config.rpcUrls,
+      );
+
+      // Use the signer from AccountPool as WalletClient
+      // The signer from AccountPool is already a viem WalletClient with publicActions
+      const walletClient = signer;
+
+      // Execute settlement using the new function
+      const result = await facilitatorV2.executeSettlementWithWalletClient(
+        walletClient,
+        publicClient,
+        paymentRequirements,
+        paymentPayload,
+        {
+          gasMultiplier: 1.2,
+          timeoutMs: 30000,
+          allowedRouters: this.config.allowedRouters,
+        },
+      );
+
+      // Log V2 settlement result for debugging
+      if (!result.success) {
+        logger.error(
+          {
+            network: paymentRequirements.network,
+            payer: result.payer,
+            errorReason: result.errorReason,
+            transaction: result.transaction,
+          },
+          "V2 settlement failed",
+        );
+      }
+
+      // Return in v1 format for API consistency
+      return {
+        success: result.success,
+        transaction: result.transaction,
+        network: result.network as any,
+        payer: result.payer,
+        errorReason: result.errorReason as any,
+      } as SettleResponse;
+    }, payerAddress);
   }
 
   /**
    * Check if v1 payment requirements indicate SettlementRouter mode
    */
   private isV1SettlementRouterMode(paymentRequirements: PaymentRequirements): boolean {
-    return !!(paymentRequirements.extra?.settlementRouter);
+    return !!paymentRequirements.extra?.settlementRouter;
   }
 }
 
@@ -394,7 +446,7 @@ export class VersionDispatcher {
  */
 export function createVersionDispatcher(
   deps: VersionDispatcherDependencies,
-  config: VersionDispatcherConfig = {}
+  config: VersionDispatcherConfig = {},
 ): VersionDispatcher {
   return new VersionDispatcher(deps, config);
 }

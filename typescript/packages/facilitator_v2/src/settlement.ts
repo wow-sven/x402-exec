@@ -9,15 +9,16 @@ import {
   createPublicClient,
   createWalletClient,
   http,
-  privateKeyToAccount,
   type PublicClient,
   type WalletClient,
   type Chain,
   type Transport,
   type Account,
 } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import type { SettlementRouterParams, SettleResponse, FacilitatorConfig } from "./types.js";
 import { SETTLEMENT_ROUTER_ABI } from "./types.js";
+import type { PaymentRequirements, PaymentPayload } from "@x402/core/types";
 import {
   validateGasLimit,
   validateGasMultiplier,
@@ -28,20 +29,33 @@ import {
   isSettlementMode,
   parseSettlementExtra,
   getNetworkConfig,
+  toCanonicalNetworkKey,
+  getNetworkName,
   type NetworkConfig,
 } from "@x402x/core_v2";
 
 /**
  * Create viem public client for a network
+ *
+ * @param network - Network identifier (V1 name or V2 CAIP-2 format)
+ * @param rpcUrls - Optional custom RPC URLs
  */
 export function createPublicClientForNetwork(
   network: string,
-  rpcUrls?: Record<string, string>
+  rpcUrls?: Record<string, string>,
 ): PublicClient {
-  const networkConfig = getNetworkConfig(network);
+  // Normalize network identifier: any format -> CAIP-2 -> V1 name
+  const canonicalNetwork = toCanonicalNetworkKey(network);
+  const v1NetworkName = getNetworkName(canonicalNetwork);
+  const networkConfig = getNetworkConfig(v1NetworkName);
 
   // Use provided RPC URL or fallback to network config
-  const rpcUrl = rpcUrls?.[network] || networkConfig?.rpcUrls?.default?.http?.[0];
+  // Try both the original network key and the normalized V1 name
+  const rpcUrl =
+    rpcUrls?.[network] ||
+    rpcUrls?.[v1NetworkName] ||
+    rpcUrls?.[canonicalNetwork] ||
+    networkConfig?.rpcUrls?.default?.http?.[0];
 
   if (!rpcUrl) {
     throw new Error(`No RPC URL available for network: ${network}`);
@@ -63,7 +77,7 @@ export function createWalletClientForNetwork(
   signer?: Address,
   rpcUrls?: Record<string, string>,
   transport?: Transport,
-  privateKey?: string
+  privateKey?: string,
 ): WalletClient {
   const networkConfig = getNetworkConfig(network);
 
@@ -103,7 +117,7 @@ export function createWalletClientForNetwork(
 export function calculateGasLimit(
   baseFee: string,
   facilitatorFee: string,
-  gasMultiplier: number = 1.2
+  gasMultiplier: number = 1.2,
 ): bigint {
   validateGasMultiplier(gasMultiplier);
 
@@ -114,7 +128,7 @@ export function calculateGasLimit(
   const hookGas = facilitatorFee !== "0x0" ? 100000n : 0n;
 
   // Calculate total with multiplier
-  const totalGas = (baseGas + hookGas) * BigInt(Math.ceil(gasMultiplier * 100)) / 100n;
+  const totalGas = ((baseGas + hookGas) * BigInt(Math.ceil(gasMultiplier * 100))) / 100n;
 
   validateGasLimit(totalGas);
   return totalGas;
@@ -126,7 +140,7 @@ export function calculateGasLimit(
 export async function checkIfSettled(
   publicClient: PublicClient,
   router: Address,
-  contextKey: Hex
+  contextKey: Hex,
 ): Promise<boolean> {
   try {
     const isSettled = await publicClient.readContract({
@@ -137,7 +151,9 @@ export async function checkIfSettled(
     });
     return isSettled;
   } catch (error) {
-    throw new Error(`Failed to check settlement status: ${error instanceof Error ? error.message : "Unknown error"}`);
+    throw new Error(
+      `Failed to check settlement status: ${error instanceof Error ? error.message : "Unknown error"}`,
+    );
   }
 }
 
@@ -150,9 +166,27 @@ export async function executeSettlementWithRouter(
   config: {
     gasLimit?: bigint;
     gasMultiplier?: number;
-  } = {}
+  } = {},
 ): Promise<Hex> {
-  const gasLimit = config.gasLimit || calculateGasLimit("0x0", params.facilitatorFee, config.gasMultiplier);
+  const gasLimit =
+    config.gasLimit || calculateGasLimit("0x0", params.facilitatorFee, config.gasMultiplier);
+
+  // Log params for debugging
+  console.log("[executeSettlementWithRouter] Settlement params:", {
+    token: params.token,
+    from: params.from,
+    value: params.value,
+    validAfter: params.validAfter,
+    validBefore: params.validBefore,
+    nonce: params.nonce,
+    signature: params.signature ? `${params.signature.slice(0, 10)}...` : undefined,
+    salt: params.salt,
+    payTo: params.payTo,
+    facilitatorFee: params.facilitatorFee,
+    hook: params.hook,
+    hookData: params.hookData,
+    settlementRouter: params.settlementRouter,
+  });
 
   try {
     const txHash = await walletClient.writeContract({
@@ -174,6 +208,8 @@ export async function executeSettlementWithRouter(
         params.hookData as Hex,
       ],
       gas: gasLimit,
+      chain: walletClient.chain,
+      account: walletClient.account ?? null,
     });
 
     return txHash;
@@ -199,7 +235,7 @@ export async function executeSettlementWithRouter(
 export async function waitForSettlementReceipt(
   publicClient: PublicClient,
   txHash: Hex,
-  timeoutMs: number = 30000
+  timeoutMs: number = 30000,
 ): Promise<{
   success: boolean;
   blockNumber?: bigint;
@@ -219,8 +255,47 @@ export async function waitForSettlementReceipt(
       effectiveGasPrice: receipt.effectiveGasPrice,
     };
   } catch (error) {
-    throw new Error(`Failed to get transaction receipt: ${error instanceof Error ? error.message : "Unknown error"}`);
+    throw new Error(
+      `Failed to get transaction receipt: ${error instanceof Error ? error.message : "Unknown error"}`,
+    );
   }
+}
+
+/**
+ * EVM Exact Scheme Authorization structure
+ * Standard x402 v2 authorization format for EIP-3009
+ */
+interface ExactEvmAuthorization {
+  from: string;
+  to: string;
+  value: string;
+  validAfter: string;
+  validBefore: string;
+  nonce: string;
+}
+
+/**
+ * EVM Exact Scheme Payload structure
+ * Standard x402 v2 payload format
+ */
+interface ExactEvmPayload {
+  signature: string;
+  authorization: ExactEvmAuthorization;
+}
+
+/**
+ * Parse EVM exact scheme payload from x402 v2 PaymentPayload
+ * Extracts the standard authorization and signature fields
+ */
+function parseEvmExactPayload(payload: any): ExactEvmPayload {
+  // x402 v2 uses payload.payload for scheme-specific data
+  const evmPayload = payload.payload as ExactEvmPayload;
+  
+  if (!evmPayload || !evmPayload.signature || !evmPayload.authorization) {
+    throw new Error("Invalid EVM exact payload structure");
+  }
+  
+  return evmPayload;
 }
 
 /**
@@ -228,22 +303,24 @@ export async function waitForSettlementReceipt(
  */
 export function parseSettlementRouterParams(
   paymentRequirements: any,
-  paymentPayload: any
+  paymentPayload: any,
 ): SettlementRouterParams {
   if (!isSettlementMode(paymentRequirements)) {
     throw new Error("Payment requirements are not in SettlementRouter mode");
   }
 
+  // Parse standard x402 v2 EVM exact payload
+  const evmPayload = parseEvmExactPayload(paymentPayload);
   const extra = parseSettlementExtra(paymentRequirements.extra);
 
   return {
     token: paymentRequirements.asset as Address,
-    from: paymentPayload.payer as Address,
-    value: paymentRequirements.maxAmountRequired,
-    validAfter: paymentPayload.validAfter || "0x0",
-    validBefore: paymentPayload.validBefore || "0xFFFFFFFFFFFFFFFF",
-    nonce: paymentPayload.nonce,
-    signature: paymentPayload.signature,
+    from: evmPayload.authorization.from as Address,
+    value: paymentRequirements.amount, // V2 uses 'amount', not 'maxAmountRequired'
+    validAfter: evmPayload.authorization.validAfter || "0x0",
+    validBefore: evmPayload.authorization.validBefore || "0xFFFFFFFFFFFFFFFF",
+    nonce: evmPayload.authorization.nonce,
+    signature: evmPayload.signature,
     salt: extra.salt,
     payTo: extra.payTo as Address,
     facilitatorFee: extra.facilitatorFee,
@@ -254,7 +331,90 @@ export function parseSettlementRouterParams(
 }
 
 /**
+ * Execute settlement using provided WalletClient (for AccountPool integration)
+ * This function allows external wallet management by accepting a pre-configured WalletClient
+ */
+export async function executeSettlementWithWalletClient(
+  walletClient: WalletClient,
+  publicClient: PublicClient,
+  paymentRequirements: PaymentRequirements,
+  paymentPayload: PaymentPayload,
+  config: {
+    gasLimit?: bigint;
+    gasMultiplier?: number;
+    timeoutMs?: number;
+    allowedRouters?: Record<string, string[]>;
+  } = {},
+): Promise<SettleResponse> {
+  try {
+    // Validate SettlementRouter
+    // Normalize network identifier: any format -> CAIP-2 -> V1 name
+    const canonicalNetwork = toCanonicalNetworkKey(paymentRequirements.network);
+    const v1NetworkName = getNetworkName(canonicalNetwork);
+    const networkConfig = getNetworkConfig(v1NetworkName);
+
+    validateSettlementRouter(
+      paymentRequirements.network,
+      paymentRequirements.extra?.settlementRouter,
+      config.allowedRouters,
+      networkConfig,
+    );
+
+    // Parse settlement parameters
+    const params = parseSettlementRouterParams(paymentRequirements, paymentPayload);
+
+    // Execute settlement with provided wallet client
+    const txHash = await executeSettlementWithRouter(walletClient, params, {
+      gasLimit: config.gasLimit,
+      gasMultiplier: config.gasMultiplier,
+    });
+
+    // Wait for receipt
+    const receipt = await waitForSettlementReceipt(publicClient, txHash, config.timeoutMs || 30000);
+
+    return {
+      success: receipt.success,
+      transaction: txHash,
+      network: paymentRequirements.network,
+      payer: params.from, // Use params.from for consistency
+      errorReason: receipt.success ? undefined : "Transaction failed",
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+    // Log detailed error for debugging
+    console.error("[executeSettlementWithWalletClient] Settlement failed:", {
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+      network: paymentRequirements.network,
+      asset: paymentRequirements.asset,
+      payloadPayer: (paymentPayload as any).payer,
+    });
+
+    // Extract payer consistently from params when possible
+    let payer: string | undefined;
+    try {
+      const params = parseSettlementRouterParams(paymentRequirements, paymentPayload);
+      payer = params.from;
+    } catch (parseError) {
+      console.error("[executeSettlementWithWalletClient] Failed to parse params:", parseError);
+      // Fallback to paymentPayload if params parsing fails
+      payer = (paymentPayload as any).payer;
+    }
+
+    return {
+      success: false,
+      transaction: "",
+      network: paymentRequirements.network,
+      payer,
+      errorReason: errorMessage,
+    };
+  }
+}
+
+/**
  * Full settlement workflow using SettlementRouter
+ * This function creates its own clients based on FacilitatorConfig
  */
 export async function settleWithSettlementRouter(
   paymentRequirements: any,
@@ -264,7 +424,7 @@ export async function settleWithSettlementRouter(
     gasMultiplier?: number;
     gasLimit?: bigint;
     timeoutMs?: number;
-  } = {}
+  } = {},
 ): Promise<SettleResponse> {
   try {
     // Validate configuration
@@ -273,23 +433,20 @@ export async function settleWithSettlementRouter(
       paymentRequirements.network,
       paymentRequirements.extra?.settlementRouter,
       config.allowedRouters,
-      networkConfig
+      networkConfig,
     );
 
     // Parse settlement parameters
     const params = parseSettlementRouterParams(paymentRequirements, paymentPayload);
 
     // Create clients
-    const publicClient = createPublicClientForNetwork(
-      paymentRequirements.network,
-      config.rpcUrls
-    );
+    const publicClient = createPublicClientForNetwork(paymentRequirements.network, config.rpcUrls);
     const walletClient = createWalletClientForNetwork(
       paymentRequirements.network,
       config.signer,
       config.rpcUrls,
       undefined,
-      config.privateKey
+      config.privateKey,
     );
 
     // Execute settlement
@@ -302,7 +459,7 @@ export async function settleWithSettlementRouter(
     const receipt = await waitForSettlementReceipt(
       publicClient,
       txHash,
-      options.timeoutMs || 30000
+      options.timeoutMs || 30000,
     );
 
     return {
