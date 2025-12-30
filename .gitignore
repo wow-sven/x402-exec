@@ -17,6 +17,7 @@ examples/**/pnpm-lock.yaml
 apps/*/pnpm-lock.yaml
 .vercel
 .pnpm-store
+operation/
 
 # Claude Code: ignore personal settings but allow shared skills
 .claude/settings*
