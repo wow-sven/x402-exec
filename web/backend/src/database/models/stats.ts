@@ -7,6 +7,53 @@ interface HookStats {
   total_volume: string | number | null;
   unique_users: number | null;
   total_transactions: number | null;
+  network?: string | null;
+}
+
+/**
+ * Get token decimals for a network
+ * BSC networks use 18 decimals, other networks use 6 decimals
+ */
+function getNetworkDecimals(network: string | null | undefined): number {
+  if (!network) return 6; // Default to 6 decimals
+  
+  const networkLower = network.toLowerCase();
+  // BSC networks use 18 decimals
+  if (networkLower === 'bsc' || networkLower === 'bsc-testnet') {
+    return 18;
+  }
+  // All other networks use 6 decimals (base, x-layer, etc.)
+  return 6;
+}
+
+/**
+ * Convert volume from source decimals to target decimals
+ * @param volume - Volume in source decimals (as string)
+ * @param sourceDecimals - Source decimals
+ * @param targetDecimals - Target decimals
+ * @returns Volume in target decimals (as string)
+ */
+function convertDecimals(
+  volume: string,
+  sourceDecimals: number,
+  targetDecimals: number
+): string {
+  if (sourceDecimals === targetDecimals) {
+    return volume;
+  }
+  
+  const volumeBigInt = BigInt(volume);
+  const decimalsDiff = sourceDecimals - targetDecimals;
+  
+  if (decimalsDiff > 0) {
+    // Convert from higher decimals to lower decimals (e.g., 18 -> 6)
+    const divisor = BigInt(10 ** decimalsDiff);
+    return (volumeBigInt / divisor).toString();
+  } else {
+    // Convert from lower decimals to higher decimals (e.g., 6 -> 18)
+    const multiplier = BigInt(10 ** Math.abs(decimalsDiff));
+    return (volumeBigInt * multiplier).toString();
+  }
 }
 
 export async function getTempOverallStats() {
@@ -31,7 +78,7 @@ export async function getAggregatedStats() {
     const db = getDatabase();
     const { data, error } = await db
       .from('x402_hooks')
-      .select('total_volume, unique_users, total_transactions');
+      .select('total_volume, unique_users, total_transactions, network');
     
     if (error) {
       throw error;
@@ -46,9 +93,14 @@ export async function getAggregatedStats() {
 
     if (data && data.length > 0) {
       // Sum total_volume (handling BigInt/Numeric as string)
+      // Convert all volumes to 6 decimals for consistent aggregation
+      const TARGET_DECIMALS = 6;
       const totalVolumeSum = (data as HookStats[]).reduce((sum: string, hook: HookStats) => {
         const volume = hook.total_volume ? String(hook.total_volume) : '0';
-        return (BigInt(sum) + BigInt(volume)).toString();
+        const networkDecimals = getNetworkDecimals(hook.network);
+        // Convert volume to target decimals (6) before summing
+        const normalizedVolume = convertDecimals(volume, networkDecimals, TARGET_DECIMALS);
+        return (BigInt(sum) + BigInt(normalizedVolume)).toString();
       }, '0');
 
       // Sum unique_users (using Set to count unique users across all hooks)

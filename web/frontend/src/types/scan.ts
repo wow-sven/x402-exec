@@ -5,7 +5,9 @@ export type NetworkId =
   | "base"
   | "base-sepolia"
   | "x-layer"
-  | "x-layer-testnet";
+  | "x-layer-testnet"
+  | "bsc"
+  | "bsc-testnet";
 
 export type HookInfo = {
   // Hook contract address; use lowercase checksummed or raw for now

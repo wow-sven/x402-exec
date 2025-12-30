@@ -151,7 +151,7 @@ function OverallTable({ items }: { items: Transaction[] }) {
               <HookBadge hook={t.hook} network={t.network} />
             </TableCell>
             <TableCell className="text-right">
-              {formatUsdcAtomicToDisplay(Number(t.valueWei), 2)}
+              {formatUsdcAtomicToDisplay(Number(t.valueWei), 2, t.network === 'bsc' || t.network === 'bsc-testnet' ? 18 : 6)}
             </TableCell>
           </TableRow>
         ))}
@@ -310,7 +310,7 @@ function TopHooksTable({
                 {integerFormatter.format(row.totalTransactions)}
               </TableCell>
               <TableCell className="text-right tabular-nums font-semibold">
-                ${formatUsdcAtomicToDisplay(row.totalVolume, 2)}
+                ${formatUsdcAtomicToDisplay(row.totalVolume, 2, row.network === 'bsc' || row.network === 'bsc-testnet' ? 18 : 6)}
               </TableCell>
             </TableRow>
           ))}
@@ -368,6 +368,7 @@ function SortIndicator({
 export default function ActivitiesPage() {
   const pageSize = 20;
   const tx = useTransactions({ page: 1, pageSize });
+  console.log("tx", tx);
   const {
     stats,
     loading: statsLoading,

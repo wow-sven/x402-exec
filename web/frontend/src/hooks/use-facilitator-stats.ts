@@ -73,17 +73,19 @@ export function useFacilitatorStats(opts: UseFacilitatorStatsOptions = {}) {
 	return { data, loading, error } as const;
 }
 
-// Utility: convert USDC atomic (6 decimals) to display number
+// Utility: convert atomic units to display number
 export function formatUsdcAtomicToDisplay(
 	atomic: string | bigint | number,
 	fractionDigits = 2,
+	decimals = 6,
 ): string {
 	try {
 		const big = typeof atomic === "bigint" ? atomic : BigInt(atomic);
-		const int = big / 1000000n;
-		const frac = big % 1000000n;
-		// Build fixed with 6 decimals then slice
-		const fracStr = frac.toString().padStart(6, "0");
+		const divisor = 10n ** BigInt(decimals);
+		const int = big / divisor;
+		const frac = big % divisor;
+		// Build fixed with specified decimals then slice
+		const fracStr = frac.toString().padStart(decimals, "0");
 		const shown = fracStr.slice(0, fractionDigits);
 		const trimmed = shown.replace(/0+$/, "");
 		return trimmed.length > 0 ? `${int.toString()}.${trimmed}` : int.toString();
