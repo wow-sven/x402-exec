@@ -14,9 +14,9 @@ cmds = [
 
 [phases.build]
 cmds = [
-  "pnpm run build:server"
+  "pnpm run build"
 ]
 
 [start]
-cmd = "cd examples/showcase/server && pnpm start"
+cmd = "pnpm run start"
 
