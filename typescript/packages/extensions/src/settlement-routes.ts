@@ -18,6 +18,7 @@ import { TransferHook } from "./hooks/index.js";
 import { getNetworkConfig } from "./networks.js";
 import { createExtensionDeclaration } from "./server-extension.js";
 import { ROUTER_SETTLEMENT_KEY } from "./server-extension.js";
+import { validateX402Version } from "./validation.js";
 
 /**
  * Default facilitator URL
@@ -389,6 +390,9 @@ export function registerSettlementHooks(
     server.onBeforeVerify(async (context) => {
       const { paymentPayload, requirements } = context;
 
+      // Validate x402 version (v2-only)
+      validateX402Version(paymentPayload.x402Version);
+
       // Check if payment has settlement extension
       if (paymentPayload.extensions && "x402x-router-settlement" in paymentPayload.extensions) {
         const extension = paymentPayload.extensions["x402x-router-settlement"] as any;
@@ -422,6 +426,9 @@ export function registerSettlementHooks(
     // Hook to validate settlement router parameters before settlement
     server.onBeforeSettle(async (context) => {
       const { paymentPayload, requirements } = context;
+
+      // Validate x402 version (v2-only)
+      validateX402Version(paymentPayload.x402Version);
 
       // Try to get params from extensions first (v2 standard), then fall back to extra
       let settlementParams: any = {};
