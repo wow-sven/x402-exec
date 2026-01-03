@@ -5,6 +5,7 @@ nixPkgs = ['nodejs']
 cmds = [
   "corepack enable",
   "corepack prepare pnpm@10.7.0 --activate",
+  "export PATH=\"$HOME/.local/share/pnpm:$PATH\"",
   "pnpm --version"
 ]
 
